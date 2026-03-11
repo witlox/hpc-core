@@ -1,0 +1,42 @@
+# Rust
+**/target/
+**/*.rs.bk
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# Claude
+.claude/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# mdBook
+book/
+
+# Environment
+.env
+.env.*
