@@ -120,4 +120,4 @@ jobs:
           fi
       - name: Publish to crates.io
         if: steps.check.outputs.skip == 'false'
-        run: cargo publish --token ${{ secrets.CRATES_IO_TOKEN }}
+        run: cargo publish --allow-dirty --token ${{ secrets.CRATES_IO_TOKEN }}
