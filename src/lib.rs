@@ -21,6 +21,8 @@
 //! - Client trait implementations
 //! - Factory functions (`create_quorum`, etc.)
 
+#![allow(clippy::significant_drop_tightening)]
+
 pub mod backup;
 pub mod log_store_variant;
 pub mod network;
@@ -42,8 +44,8 @@ pub mod proto {
 use std::fmt;
 
 use openraft::RaftTypeConfig;
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 /// Application state managed by the Raft state machine.
 ///
@@ -73,7 +75,7 @@ pub trait BackupMetadataSource {
 }
 
 // Re-exports for convenience.
-pub use backup::{export_backup, restore_backup, verify_backup, BackupMetadata};
+pub use backup::{BackupMetadata, export_backup, restore_backup, verify_backup};
 pub use log_store_variant::{LogReaderVariant, LogStoreVariant};
 pub use network::MemNetworkFactory;
 pub use persistent_store::FileLogStore;
@@ -100,7 +102,7 @@ pub(crate) mod test_types {
     impl fmt::Display for TestCommand {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             match self {
-                TestCommand::Set(k, v) => write!(f, "Set({k}, {v})"),
+                Self::Set(k, v) => write!(f, "Set({k}, {v})"),
             }
         }
     }

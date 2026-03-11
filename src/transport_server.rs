@@ -27,18 +27,14 @@ impl<C: RaftTypeConfig> RaftTransportServer<C> {
 #[tonic::async_trait]
 impl<C> RaftService for RaftTransportServer<C>
 where
-    C: RaftTypeConfig<
-        Vote = openraft::vote::Vote<C>,
-        SnapshotData = Cursor<Vec<u8>>,
-    > + 'static,
+    C: RaftTypeConfig<Vote = openraft::vote::Vote<C>, SnapshotData = Cursor<Vec<u8>>> + 'static,
 {
     async fn append_entries(
         &self,
         request: Request<RaftPayload>,
     ) -> Result<Response<RaftPayload>, Status> {
-        let req: AppendEntriesRequest<C> =
-            serde_json::from_slice(&request.into_inner().data)
-                .map_err(|e| Status::invalid_argument(format!("Deserialize error: {e}")))?;
+        let req: AppendEntriesRequest<C> = serde_json::from_slice(&request.into_inner().data)
+            .map_err(|e| Status::invalid_argument(format!("Deserialize error: {e}")))?;
 
         let resp = self
             .raft
@@ -105,8 +101,8 @@ mod tests {
 
     #[test]
     fn snapshot_meta_roundtrip() {
-        use openraft::vote::leader_id_adv::CommittedLeaderId;
         use openraft::vote::RaftLeaderId;
+        use openraft::vote::leader_id_adv::CommittedLeaderId;
 
         let meta: SnapshotMeta<TestTypeConfig> = SnapshotMeta {
             last_log_id: Some(openraft::LogId::new(CommittedLeaderId::new(1, 1), 5)),
@@ -123,8 +119,7 @@ mod tests {
     fn vote_roundtrip() {
         let vote = openraft::vote::Vote::<TestTypeConfig>::new(3, 7);
         let data = serde_json::to_vec(&vote).unwrap();
-        let decoded: openraft::vote::Vote<TestTypeConfig> =
-            serde_json::from_slice(&data).unwrap();
+        let decoded: openraft::vote::Vote<TestTypeConfig> = serde_json::from_slice(&data).unwrap();
         assert_eq!(decoded, vote);
     }
 }

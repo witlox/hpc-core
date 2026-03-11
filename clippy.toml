@@ -1,1 +1,5 @@
 msrv = "1.80"
+allow-unwrap-in-tests = true
+
+# These lints are overly strict for async code with RwLock guards
+avoid-breaking-exported-api = false

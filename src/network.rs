@@ -46,10 +46,7 @@ impl<C: RaftTypeConfig> Default for MemNetworkFactory<C> {
 
 impl<C> RaftNetworkFactory<C> for MemNetworkFactory<C>
 where
-    C: RaftTypeConfig<
-        Vote = openraft::vote::Vote<C>,
-        SnapshotData = Cursor<Vec<u8>>,
-    >,
+    C: RaftTypeConfig<Vote = openraft::vote::Vote<C>, SnapshotData = Cursor<Vec<u8>>>,
 {
     type Network = MemNetwork<C>;
 
@@ -69,10 +66,7 @@ pub struct MemNetwork<C: RaftTypeConfig> {
 
 impl<C> RaftNetworkV2<C> for MemNetwork<C>
 where
-    C: RaftTypeConfig<
-        Vote = openraft::vote::Vote<C>,
-        SnapshotData = Cursor<Vec<u8>>,
-    >,
+    C: RaftTypeConfig<Vote = openraft::vote::Vote<C>, SnapshotData = Cursor<Vec<u8>>>,
 {
     async fn append_entries(
         &mut self,

@@ -40,10 +40,7 @@ struct FileLogStoreInner<C: RaftTypeConfig> {
 
 impl<C> FileLogStore<C>
 where
-    C: RaftTypeConfig<
-        Entry = openraft::Entry<C>,
-        Vote = openraft::vote::Vote<C>,
-    >,
+    C: RaftTypeConfig<Entry = openraft::Entry<C>, Vote = openraft::vote::Vote<C>>,
 {
     /// Create a new file-backed log store.
     ///
@@ -109,7 +106,10 @@ where
     }
 
     /// Load all WAL entries from disk.
-    fn load_wal(wal_dir: &Path) -> io::Result<(BTreeMap<u64, openraft::Entry<C>>, Option<LogId<C>>)> {
+    #[allow(clippy::type_complexity)]
+    fn load_wal(
+        wal_dir: &Path,
+    ) -> io::Result<(BTreeMap<u64, openraft::Entry<C>>, Option<LogId<C>>)> {
         let mut log = BTreeMap::new();
         let mut last_purged: Option<LogId<C>> = None;
 
@@ -181,10 +181,7 @@ pub struct FileLogReader<C: RaftTypeConfig> {
 
 impl<C> RaftLogReader<C> for FileLogReader<C>
 where
-    C: RaftTypeConfig<
-        Entry = openraft::Entry<C>,
-        Vote = openraft::vote::Vote<C>,
-    >,
+    C: RaftTypeConfig<Entry = openraft::Entry<C>, Vote = openraft::vote::Vote<C>>,
     openraft::Entry<C>: Clone,
 {
     async fn try_get_log_entries<RB: RangeBounds<u64> + Clone + Debug + OptionalSend>(
@@ -206,10 +203,7 @@ where
 
 impl<C> RaftLogStorage<C> for FileLogStore<C>
 where
-    C: RaftTypeConfig<
-        Entry = openraft::Entry<C>,
-        Vote = openraft::vote::Vote<C>,
-    >,
+    C: RaftTypeConfig<Entry = openraft::Entry<C>, Vote = openraft::vote::Vote<C>>,
     openraft::Entry<C>: Clone,
 {
     type LogReader = FileLogReader<C>;
@@ -237,11 +231,7 @@ where
         Ok(())
     }
 
-    async fn append<I>(
-        &mut self,
-        entries: I,
-        callback: IOFlushed<C>,
-    ) -> Result<(), io::Error>
+    async fn append<I>(&mut self, entries: I, callback: IOFlushed<C>) -> Result<(), io::Error>
     where
         I: IntoIterator<Item = C::Entry> + OptionalSend,
         I::IntoIter: OptionalSend,
@@ -368,14 +358,14 @@ mod tests {
 
     #[tokio::test]
     async fn committed_persists_across_restart() {
-        let dir = tempfile::tempdir().unwrap();
-
-        use openraft::vote::leader_id_adv::CommittedLeaderId;
         use openraft::vote::RaftLeaderId;
+        use openraft::vote::leader_id_adv::CommittedLeaderId;
+
+        let dir = tempfile::tempdir().unwrap();
         let log_id = LogId::new(CommittedLeaderId::new(1, 1), 42);
         {
             let mut store = FileLogStore::<TestTypeConfig>::new(dir.path()).unwrap();
-            store.save_committed(Some(log_id.clone())).await.unwrap();
+            store.save_committed(Some(log_id)).await.unwrap();
         }
 
         let mut store = FileLogStore::<TestTypeConfig>::new(dir.path()).unwrap();

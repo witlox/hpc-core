@@ -15,6 +15,7 @@ use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use openraft::RaftTypeConfig;
 use openraft::error::{RPCError, StreamingError, Unreachable};
 use openraft::network::v2::RaftNetworkV2;
 use openraft::network::{Backoff, RPCOption, RaftNetworkFactory};
@@ -22,7 +23,6 @@ use openraft::raft::{
     AppendEntriesRequest, AppendEntriesResponse, SnapshotResponse, VoteRequest, VoteResponse,
 };
 use openraft::storage::Snapshot;
-use openraft::RaftTypeConfig;
 
 use tokio::sync::RwLock;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
@@ -127,12 +127,12 @@ impl Default for GrpcNetworkFactory {
 impl<C> RaftNetworkFactory<C> for GrpcNetworkFactory
 where
     C: RaftTypeConfig<
-        NodeId = u64,
-        Node = openraft::impls::BasicNode,
-        Entry = openraft::Entry<C>,
-        Vote = openraft::vote::Vote<C>,
-        SnapshotData = Cursor<Vec<u8>>,
-    >,
+            NodeId = u64,
+            Node = openraft::impls::BasicNode,
+            Entry = openraft::Entry<C>,
+            Vote = openraft::vote::Vote<C>,
+            SnapshotData = Cursor<Vec<u8>>,
+        >,
 {
     type Network = GrpcNetwork;
 
@@ -229,12 +229,12 @@ impl GrpcNetwork {
 impl<C> RaftNetworkV2<C> for GrpcNetwork
 where
     C: RaftTypeConfig<
-        NodeId = u64,
-        Node = openraft::impls::BasicNode,
-        Entry = openraft::Entry<C>,
-        Vote = openraft::vote::Vote<C>,
-        SnapshotData = Cursor<Vec<u8>>,
-    >,
+            NodeId = u64,
+            Node = openraft::impls::BasicNode,
+            Entry = openraft::Entry<C>,
+            Vote = openraft::vote::Vote<C>,
+            SnapshotData = Cursor<Vec<u8>>,
+        >,
 {
     async fn append_entries(
         &mut self,
@@ -401,6 +401,7 @@ mod tests {
         let addrs = factory.addresses.read().await;
         assert_eq!(addrs.get(&1).unwrap(), "127.0.0.1:9000");
         assert_eq!(addrs.get(&2).unwrap(), "127.0.0.1:9001");
+        drop(addrs);
     }
 
     #[test]
@@ -444,8 +445,10 @@ mod tests {
         let node = openraft::impls::BasicNode {
             addr: "10.0.0.1:9000".to_string(),
         };
-        let network = RaftNetworkFactory::<TestTypeConfig>::new_client(&mut factory, 1, &node).await;
+        let network =
+            RaftNetworkFactory::<TestTypeConfig>::new_client(&mut factory, 1, &node).await;
         assert!(network.tls.is_some(), "network should inherit TLS config");
         assert_eq!(network.address, "10.0.0.1:9000");
+        drop(network);
     }
 }

@@ -26,10 +26,7 @@ pub enum LogReaderVariant<C: RaftTypeConfig> {
 
 impl<C> RaftLogReader<C> for LogReaderVariant<C>
 where
-    C: RaftTypeConfig<
-        Entry = openraft::Entry<C>,
-        Vote = openraft::vote::Vote<C>,
-    >,
+    C: RaftTypeConfig<Entry = openraft::Entry<C>, Vote = openraft::vote::Vote<C>>,
     openraft::Entry<C>: Clone,
 {
     async fn try_get_log_entries<RB: RangeBounds<u64> + Clone + Debug + OptionalSend>(
@@ -52,10 +49,7 @@ where
 
 impl<C> RaftLogStorage<C> for LogStoreVariant<C>
 where
-    C: RaftTypeConfig<
-        Entry = openraft::Entry<C>,
-        Vote = openraft::vote::Vote<C>,
-    >,
+    C: RaftTypeConfig<Entry = openraft::Entry<C>, Vote = openraft::vote::Vote<C>>,
     openraft::Entry<C>: Clone,
 {
     type LogReader = LogReaderVariant<C>;
@@ -81,11 +75,7 @@ where
         }
     }
 
-    async fn append<I>(
-        &mut self,
-        entries: I,
-        callback: IOFlushed<C>,
-    ) -> Result<(), io::Error>
+    async fn append<I>(&mut self, entries: I, callback: IOFlushed<C>) -> Result<(), io::Error>
     where
         I: IntoIterator<Item = C::Entry> + OptionalSend,
         I::IntoIter: OptionalSend,

@@ -45,10 +45,7 @@ where
 
 impl<C, S> HpcStateMachine<C, S>
 where
-    C: RaftTypeConfig<
-        Entry = openraft::Entry<C>,
-        SnapshotData = Cursor<Vec<u8>>,
-    >,
+    C: RaftTypeConfig<Entry = openraft::Entry<C>, SnapshotData = Cursor<Vec<u8>>>,
     S: StateMachineState<C>,
     LogId<C>: Serialize + DeserializeOwned,
     StoredMembership<C>: Serialize + DeserializeOwned,
@@ -67,10 +64,7 @@ where
     /// Create a state machine with persistent snapshot directory.
     ///
     /// On startup, loads the latest snapshot from disk if available.
-    pub fn with_snapshot_dir(
-        state: Arc<RwLock<S>>,
-        snapshot_dir: PathBuf,
-    ) -> io::Result<Self> {
+    pub fn with_snapshot_dir(state: Arc<RwLock<S>>, snapshot_dir: PathBuf) -> io::Result<Self> {
         std::fs::create_dir_all(&snapshot_dir)?;
 
         let mut sm = Self {
@@ -127,11 +121,7 @@ fn snapshot_filename<C: RaftTypeConfig>(meta: &SnapshotMeta<C>) -> String {
     format!("snap-0-{index}.json")
 }
 
-fn persist_snapshot<C, S>(
-    dir: &Path,
-    meta: &SnapshotMeta<C>,
-    data: &[u8],
-) -> io::Result<()>
+fn persist_snapshot<C, S>(dir: &Path, meta: &SnapshotMeta<C>, data: &[u8]) -> io::Result<()>
 where
     C: RaftTypeConfig,
     S: DeserializeOwned + Serialize,
@@ -207,9 +197,7 @@ fn prune_old_snapshots(dir: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn load_latest_snapshot<C, S>(
-    dir: &Path,
-) -> io::Result<Option<(SnapshotMeta<C>, S)>>
+fn load_latest_snapshot<C, S>(dir: &Path) -> io::Result<Option<(SnapshotMeta<C>, S)>>
 where
     C: RaftTypeConfig,
     S: DeserializeOwned,
@@ -244,10 +232,7 @@ where
 
 impl<C, S> RaftStateMachine<C> for HpcStateMachine<C, S>
 where
-    C: RaftTypeConfig<
-        Entry = openraft::Entry<C>,
-        SnapshotData = Cursor<Vec<u8>>,
-    >,
+    C: RaftTypeConfig<Entry = openraft::Entry<C>, SnapshotData = Cursor<Vec<u8>>>,
     S: StateMachineState<C>,
     LogId<C>: Serialize + DeserializeOwned,
     StoredMembership<C>: Serialize + DeserializeOwned + Clone,
@@ -262,9 +247,8 @@ where
 
     async fn apply<Strm>(&mut self, entries: Strm) -> Result<(), io::Error>
     where
-        Strm: futures::Stream<
-                Item = Result<openraft::storage::EntryResponder<C>, io::Error>,
-            > + Unpin
+        Strm: futures::Stream<Item = Result<openraft::storage::EntryResponder<C>, io::Error>>
+            + Unpin
             + OptionalSend,
     {
         use futures::StreamExt;
@@ -327,8 +311,8 @@ where
         let mut state = self.state.write().await;
         *state = new_state;
 
-        self.last_applied = meta.last_log_id.clone();
-        self.last_membership = meta.last_membership.clone();
+        self.last_applied.clone_from(&meta.last_log_id);
+        self.last_membership.clone_from(&meta.last_membership);
         self.snapshot_idx += 1;
 
         debug!("Installed snapshot at {:?}", meta.last_log_id);
@@ -343,8 +327,8 @@ where
                     let data = serde_json::to_vec(&app_state).map_err(io::Error::other)?;
                     let mut state = self.state.write().await;
                     *state = app_state;
-                    self.last_applied = meta.last_log_id.clone();
-                    self.last_membership = meta.last_membership.clone();
+                    self.last_applied.clone_from(&meta.last_log_id);
+                    self.last_membership.clone_from(&meta.last_membership);
                     self.snapshot_idx += 1;
 
                     return Ok(Some(Snapshot {
@@ -391,10 +375,7 @@ where
 
 impl<C, S> RaftSnapshotBuilder<C> for HpcSnapshotBuilder<C, S>
 where
-    C: RaftTypeConfig<
-        Entry = openraft::Entry<C>,
-        SnapshotData = Cursor<Vec<u8>>,
-    >,
+    C: RaftTypeConfig<Entry = openraft::Entry<C>, SnapshotData = Cursor<Vec<u8>>>,
     S: StateMachineState<C>,
     LogId<C>: Serialize + DeserializeOwned,
     StoredMembership<C>: Serialize + DeserializeOwned + Clone,

@@ -24,7 +24,7 @@ use crate::BackupMetadataSource;
 
 /// Core backup metadata, present in every backup regardless of application.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BackupMetadata<M: Serialize> {
+pub struct BackupMetadata<M> {
     pub timestamp: DateTime<Utc>,
     pub snapshot_term: u64,
     pub snapshot_index: u64,
@@ -259,8 +259,7 @@ mod tests {
         let export_meta = export_backup(&state, &backup_path).await.unwrap();
         assert_eq!(export_meta.app.item_count, 3);
 
-        let verify_meta =
-            verify_backup::<TestState, TestMetadata>(&backup_path).unwrap();
+        let verify_meta = verify_backup::<TestState, TestMetadata>(&backup_path).unwrap();
         assert_eq!(verify_meta.app.item_count, 3);
     }
 
@@ -308,10 +307,12 @@ mod tests {
 
         let result = verify_backup::<TestState, TestMetadata>(&backup_path);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("missing snapshot.json"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("missing snapshot.json")
+        );
     }
 
     #[tokio::test]
@@ -322,8 +323,7 @@ mod tests {
         let data_dir = dir.path().join("restored");
 
         export_backup(&state, &backup_path).await.unwrap();
-        let meta =
-            restore_backup::<TestState, TestMetadata>(&backup_path, &data_dir).unwrap();
+        let meta = restore_backup::<TestState, TestMetadata>(&backup_path, &data_dir).unwrap();
 
         assert_eq!(meta.app.item_count, 3);
 

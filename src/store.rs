@@ -56,10 +56,7 @@ pub struct MemLogReader<C: RaftTypeConfig> {
 
 impl<C> RaftLogReader<C> for MemLogReader<C>
 where
-    C: RaftTypeConfig<
-        Entry = openraft::Entry<C>,
-        Vote = openraft::vote::Vote<C>,
-    >,
+    C: RaftTypeConfig<Entry = openraft::Entry<C>, Vote = openraft::vote::Vote<C>>,
     openraft::Entry<C>: Clone,
 {
     async fn try_get_log_entries<RB: RangeBounds<u64> + Clone + Debug + OptionalSend>(
@@ -81,10 +78,7 @@ where
 
 impl<C> RaftLogStorage<C> for MemLogStore<C>
 where
-    C: RaftTypeConfig<
-        Entry = openraft::Entry<C>,
-        Vote = openraft::vote::Vote<C>,
-    >,
+    C: RaftTypeConfig<Entry = openraft::Entry<C>, Vote = openraft::vote::Vote<C>>,
     openraft::Entry<C>: Clone,
 {
     type LogReader = MemLogReader<C>;
@@ -110,11 +104,7 @@ where
         Ok(())
     }
 
-    async fn append<I>(
-        &mut self,
-        entries: I,
-        callback: IOFlushed<C>,
-    ) -> Result<(), io::Error>
+    async fn append<I>(&mut self, entries: I, callback: IOFlushed<C>) -> Result<(), io::Error>
     where
         I: IntoIterator<Item = C::Entry> + OptionalSend,
         I::IntoIter: OptionalSend,
