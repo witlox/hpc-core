@@ -1,0 +1,21 @@
+# Nextest configuration for Lattice
+#
+# Slow tests are marked with #[ignore] and skipped by default.
+# Use --run-ignored all to include them.
+#
+# Profiles:
+#   default  — all tests except #[ignore] (slow multi-node Raft tests)
+#   ci       — full suite including slow tests
+#
+# Usage:
+#   just test          # default (skips slow)
+#   just test-all      # full suite including slow tests
+#   just test-slow     # only slow tests
+
+[profile.default]
+slow-timeout = { period = "30s", terminate-after = 2 }
+
+[profile.ci]
+# Full suite — all tests including slow, longer timeouts
+slow-timeout = { period = "120s", terminate-after = 3 }
+fail-fast = false
