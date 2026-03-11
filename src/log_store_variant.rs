@@ -114,3 +114,138 @@ where
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_types::TestTypeConfig;
+    use openraft::vote::RaftLeaderId;
+    use openraft::vote::leader_id_adv::CommittedLeaderId;
+
+    #[tokio::test]
+    async fn memory_variant_get_log_state() {
+        let mut store =
+            LogStoreVariant::<TestTypeConfig>::Memory(crate::store::MemLogStore::new());
+        let state = store.get_log_state().await.unwrap();
+        assert!(state.last_log_id.is_none());
+        assert!(state.last_purged_log_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn memory_variant_save_and_read_vote() {
+        let mut store =
+            LogStoreVariant::<TestTypeConfig>::Memory(crate::store::MemLogStore::new());
+        let vote = openraft::vote::Vote::new(1, 1);
+        store.save_vote(&vote).await.unwrap();
+
+        let mut reader = store.get_log_reader().await;
+        let read = reader.read_vote().await.unwrap();
+        assert_eq!(read.unwrap(), vote);
+    }
+
+    #[tokio::test]
+    async fn memory_variant_read_entries_empty() {
+        let mut store =
+            LogStoreVariant::<TestTypeConfig>::Memory(crate::store::MemLogStore::new());
+        let mut reader = store.get_log_reader().await;
+        let entries = reader.try_get_log_entries(0..10).await.unwrap();
+        assert!(entries.is_empty());
+    }
+
+    #[tokio::test]
+    async fn memory_variant_save_and_read_committed() {
+        let mut store =
+            LogStoreVariant::<TestTypeConfig>::Memory(crate::store::MemLogStore::new());
+        let log_id = LogId::new(CommittedLeaderId::new(1, 1), 42);
+        store.save_committed(Some(log_id)).await.unwrap();
+
+        let read = store.read_committed().await.unwrap();
+        assert_eq!(read.unwrap().index, 42);
+    }
+
+    #[tokio::test]
+    async fn memory_variant_truncate_after_none() {
+        let mut store =
+            LogStoreVariant::<TestTypeConfig>::Memory(crate::store::MemLogStore::new());
+        store.truncate_after(None).await.unwrap();
+        let state = store.get_log_state().await.unwrap();
+        assert!(state.last_log_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn memory_variant_purge() {
+        let mut store =
+            LogStoreVariant::<TestTypeConfig>::Memory(crate::store::MemLogStore::new());
+        let log_id = LogId::new(CommittedLeaderId::new(1, 1), 5);
+        store.purge(log_id).await.unwrap();
+        let state = store.get_log_state().await.unwrap();
+        assert!(state.last_purged_log_id.is_some());
+    }
+
+    #[tokio::test]
+    async fn file_variant_get_log_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_store =
+            crate::persistent_store::FileLogStore::<TestTypeConfig>::new(dir.path()).unwrap();
+        let mut store = LogStoreVariant::<TestTypeConfig>::File(file_store);
+        let state = store.get_log_state().await.unwrap();
+        assert!(state.last_log_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn file_variant_save_and_read_vote() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_store =
+            crate::persistent_store::FileLogStore::<TestTypeConfig>::new(dir.path()).unwrap();
+        let mut store = LogStoreVariant::<TestTypeConfig>::File(file_store);
+        let vote = openraft::vote::Vote::new(2, 3);
+        store.save_vote(&vote).await.unwrap();
+
+        let mut reader = store.get_log_reader().await;
+        let read = reader.read_vote().await.unwrap();
+        assert_eq!(read.unwrap(), vote);
+    }
+
+    #[tokio::test]
+    async fn file_variant_save_and_read_committed() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_store =
+            crate::persistent_store::FileLogStore::<TestTypeConfig>::new(dir.path()).unwrap();
+        let mut store = LogStoreVariant::<TestTypeConfig>::File(file_store);
+        let log_id = LogId::new(CommittedLeaderId::new(1, 1), 10);
+        store.save_committed(Some(log_id)).await.unwrap();
+
+        let read = store.read_committed().await.unwrap();
+        assert_eq!(read.unwrap().index, 10);
+    }
+
+    #[tokio::test]
+    async fn file_variant_truncate_after_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_store =
+            crate::persistent_store::FileLogStore::<TestTypeConfig>::new(dir.path()).unwrap();
+        let mut store = LogStoreVariant::<TestTypeConfig>::File(file_store);
+        store.truncate_after(None).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn file_variant_purge() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_store =
+            crate::persistent_store::FileLogStore::<TestTypeConfig>::new(dir.path()).unwrap();
+        let mut store = LogStoreVariant::<TestTypeConfig>::File(file_store);
+        let log_id = LogId::new(CommittedLeaderId::new(1, 1), 5);
+        store.purge(log_id).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn file_variant_read_entries_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_store =
+            crate::persistent_store::FileLogStore::<TestTypeConfig>::new(dir.path()).unwrap();
+        let mut store = LogStoreVariant::<TestTypeConfig>::File(file_store);
+        let mut reader = store.get_log_reader().await;
+        let entries = reader.try_get_log_entries(0..10).await.unwrap();
+        assert!(entries.is_empty());
+    }
+}

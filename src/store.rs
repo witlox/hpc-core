@@ -183,6 +183,73 @@ mod tests {
         assert_eq!(read.unwrap(), vote);
     }
 
-    // Note: append/truncate/purge are tested implicitly via the integration
-    // tests since IOFlushed::new is pub(crate) in openraft 0.10.
+    use openraft::vote::RaftLeaderId;
+
+    #[tokio::test]
+    async fn truncate_after_none_on_empty() {
+        let mut store = MemLogStore::<TestTypeConfig>::new();
+        store.truncate_after(None).await.unwrap();
+        let state = store.get_log_state().await.unwrap();
+        assert!(state.last_log_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn truncate_after_some_on_empty() {
+        use openraft::vote::leader_id_adv::CommittedLeaderId;
+        let mut store = MemLogStore::<TestTypeConfig>::new();
+        let log_id = openraft::LogId::new(CommittedLeaderId::new(1, 1), 5);
+        store.truncate_after(Some(log_id)).await.unwrap();
+        let state = store.get_log_state().await.unwrap();
+        assert!(state.last_log_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn purge_on_empty_sets_last_purged() {
+        use openraft::vote::leader_id_adv::CommittedLeaderId;
+        let mut store = MemLogStore::<TestTypeConfig>::new();
+        let log_id = openraft::LogId::new(CommittedLeaderId::new(1, 1), 3);
+        store.purge(log_id).await.unwrap();
+        let state = store.get_log_state().await.unwrap();
+        assert_eq!(state.last_purged_log_id.unwrap().index, 3);
+    }
+
+    #[tokio::test]
+    async fn save_and_read_committed() {
+        use openraft::vote::leader_id_adv::CommittedLeaderId;
+        let mut store = MemLogStore::<TestTypeConfig>::new();
+
+        // Initially none
+        let committed = store.read_committed().await.unwrap();
+        assert!(committed.is_none());
+
+        // Save and read back
+        let log_id = openraft::LogId::new(CommittedLeaderId::new(1, 1), 42);
+        store.save_committed(Some(log_id)).await.unwrap();
+        let committed = store.read_committed().await.unwrap();
+        assert_eq!(committed.unwrap().index, 42);
+
+        // Save None
+        store.save_committed(None).await.unwrap();
+        let committed = store.read_committed().await.unwrap();
+        assert!(committed.is_none());
+    }
+
+    #[tokio::test]
+    async fn get_log_reader_shares_state() {
+        let mut store = MemLogStore::<TestTypeConfig>::new();
+        let vote = openraft::vote::Vote::new(5, 5);
+        store.save_vote(&vote).await.unwrap();
+
+        let mut reader = store.get_log_reader().await;
+        let read = reader.read_vote().await.unwrap();
+        assert_eq!(read.unwrap(), vote);
+    }
+
+    #[tokio::test]
+    async fn read_entries_on_empty() {
+        let mut store = MemLogStore::<TestTypeConfig>::new();
+        let mut reader = store.get_log_reader().await;
+        let entries = reader.try_get_log_entries(0..10).await.unwrap();
+        assert!(entries.is_empty());
+    }
 }

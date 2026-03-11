@@ -379,4 +379,286 @@ mod tests {
         let _store = FileLogStore::<TestTypeConfig>::new(dir.path()).unwrap();
         assert!(dir.path().join("raft/wal").exists());
     }
+
+    use openraft::vote::RaftLeaderId;
+
+    #[tokio::test]
+    async fn truncate_after_none_on_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = FileLogStore::<TestTypeConfig>::new(dir.path()).unwrap();
+        store.truncate_after(None).await.unwrap();
+        let state = store.get_log_state().await.unwrap();
+        assert!(state.last_log_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn truncate_after_some_on_empty() {
+        use openraft::vote::leader_id_adv::CommittedLeaderId;
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = FileLogStore::<TestTypeConfig>::new(dir.path()).unwrap();
+        let log_id = openraft::LogId::new(CommittedLeaderId::new(1, 1), 5);
+        store.truncate_after(Some(log_id)).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn purge_sets_last_purged_and_writes_marker() {
+        use openraft::vote::leader_id_adv::CommittedLeaderId;
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = FileLogStore::<TestTypeConfig>::new(dir.path()).unwrap();
+        let log_id = openraft::LogId::new(CommittedLeaderId::new(1, 1), 3);
+        store.purge(log_id).await.unwrap();
+
+        let state = store.get_log_state().await.unwrap();
+        assert_eq!(state.last_purged_log_id.unwrap().index, 3);
+
+        // Verify purged.json written
+        assert!(dir.path().join("raft/wal/purged.json").exists());
+    }
+
+    #[tokio::test]
+    async fn purge_marker_persists_across_restart() {
+        use openraft::vote::leader_id_adv::CommittedLeaderId;
+        let dir = tempfile::tempdir().unwrap();
+        let log_id = openraft::LogId::new(CommittedLeaderId::new(1, 1), 7);
+        {
+            let mut store = FileLogStore::<TestTypeConfig>::new(dir.path()).unwrap();
+            store.purge(log_id).await.unwrap();
+        }
+
+        let mut store2 = FileLogStore::<TestTypeConfig>::new(dir.path()).unwrap();
+        let state = store2.get_log_state().await.unwrap();
+        assert_eq!(state.last_purged_log_id.unwrap().index, 7);
+    }
+
+    #[tokio::test]
+    async fn wal_entries_load_on_restart() {
+        use openraft::vote::leader_id_adv::CommittedLeaderId;
+        use openraft::{Entry, EntryPayload, LogId};
+        use crate::test_types::{TestCommand, TestTypeConfig};
+
+        let dir = tempfile::tempdir().unwrap();
+        let wal_dir = dir.path().join("raft/wal");
+        std::fs::create_dir_all(&wal_dir).unwrap();
+
+        // Manually write WAL entry files
+        for i in 1..=3u64 {
+            let entry = Entry::<TestTypeConfig> {
+                log_id: LogId::new(CommittedLeaderId::new(1, 1), i),
+                payload: EntryPayload::Normal(TestCommand::Set(
+                    format!("k{i}"),
+                    format!("v{i}"),
+                )),
+            };
+            let data = serde_json::to_vec(&entry).unwrap();
+            std::fs::write(wal_dir.join(format!("{i}.json")), &data).unwrap();
+        }
+
+        // Create store — should load the entries
+        let mut store = FileLogStore::<TestTypeConfig>::new(dir.path()).unwrap();
+        let state = store.get_log_state().await.unwrap();
+        assert_eq!(state.last_log_id.unwrap().index, 3);
+
+        // Read entries via reader
+        let mut reader = store.get_log_reader().await;
+        let entries = reader.try_get_log_entries(1..=3).await.unwrap();
+        assert_eq!(entries.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn truncate_after_with_wal_entries() {
+        use openraft::vote::leader_id_adv::CommittedLeaderId;
+        use openraft::{Entry, EntryPayload, LogId};
+        use crate::test_types::{TestCommand, TestTypeConfig};
+
+        let dir = tempfile::tempdir().unwrap();
+        let wal_dir = dir.path().join("raft/wal");
+        std::fs::create_dir_all(&wal_dir).unwrap();
+
+        // Write entries 1..=5
+        for i in 1..=5u64 {
+            let entry = Entry::<TestTypeConfig> {
+                log_id: LogId::new(CommittedLeaderId::new(1, 1), i),
+                payload: EntryPayload::Normal(TestCommand::Set(
+                    format!("k{i}"),
+                    format!("v{i}"),
+                )),
+            };
+            let data = serde_json::to_vec(&entry).unwrap();
+            std::fs::write(wal_dir.join(format!("{i}.json")), &data).unwrap();
+        }
+
+        let mut store = FileLogStore::<TestTypeConfig>::new(dir.path()).unwrap();
+
+        // Truncate after index 3 (remove 4, 5)
+        let log_id = LogId::new(CommittedLeaderId::new(1, 1), 3);
+        store.truncate_after(Some(log_id)).await.unwrap();
+
+        let state = store.get_log_state().await.unwrap();
+        assert_eq!(state.last_log_id.unwrap().index, 3);
+
+        // Verify WAL files removed
+        assert!(!wal_dir.join("4.json").exists());
+        assert!(!wal_dir.join("5.json").exists());
+        assert!(wal_dir.join("3.json").exists());
+    }
+
+    #[tokio::test]
+    async fn purge_removes_wal_entries() {
+        use openraft::vote::leader_id_adv::CommittedLeaderId;
+        use openraft::{Entry, EntryPayload, LogId};
+        use crate::test_types::{TestCommand, TestTypeConfig};
+
+        let dir = tempfile::tempdir().unwrap();
+        let wal_dir = dir.path().join("raft/wal");
+        std::fs::create_dir_all(&wal_dir).unwrap();
+
+        for i in 1..=5u64 {
+            let entry = Entry::<TestTypeConfig> {
+                log_id: LogId::new(CommittedLeaderId::new(1, 1), i),
+                payload: EntryPayload::Normal(TestCommand::Set(
+                    format!("k{i}"),
+                    format!("v{i}"),
+                )),
+            };
+            let data = serde_json::to_vec(&entry).unwrap();
+            std::fs::write(wal_dir.join(format!("{i}.json")), &data).unwrap();
+        }
+
+        let mut store = FileLogStore::<TestTypeConfig>::new(dir.path()).unwrap();
+
+        // Purge up to index 3 (remove 1, 2, 3)
+        let log_id = LogId::new(CommittedLeaderId::new(1, 1), 3);
+        store.purge(log_id).await.unwrap();
+
+        // Verify files removed
+        assert!(!wal_dir.join("1.json").exists());
+        assert!(!wal_dir.join("2.json").exists());
+        assert!(!wal_dir.join("3.json").exists());
+        assert!(wal_dir.join("4.json").exists());
+        assert!(wal_dir.join("5.json").exists());
+
+        // Verify purged marker
+        assert!(wal_dir.join("purged.json").exists());
+    }
+
+    #[tokio::test]
+    async fn get_log_reader_reads_entries() {
+        use openraft::vote::leader_id_adv::CommittedLeaderId;
+        use openraft::{Entry, EntryPayload, LogId};
+        use crate::test_types::TestCommand;
+
+        let dir = tempfile::tempdir().unwrap();
+        let wal_dir = dir.path().join("raft/wal");
+        std::fs::create_dir_all(&wal_dir).unwrap();
+
+        let entry = Entry::<TestTypeConfig> {
+            log_id: LogId::new(CommittedLeaderId::new(1, 1), 1),
+            payload: EntryPayload::Normal(TestCommand::Set("a".into(), "b".into())),
+        };
+        std::fs::write(
+            wal_dir.join("1.json"),
+            serde_json::to_vec(&entry).unwrap(),
+        )
+        .unwrap();
+
+        let mut store = FileLogStore::<TestTypeConfig>::new(dir.path()).unwrap();
+        let mut reader = store.get_log_reader().await;
+        let entries = reader.try_get_log_entries(1..=1).await.unwrap();
+        assert_eq!(entries.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn corrupt_vote_json_starts_fresh() {
+        let dir = tempfile::tempdir().unwrap();
+        let raft_dir = dir.path().join("raft");
+        std::fs::create_dir_all(raft_dir.join("wal")).unwrap();
+        std::fs::write(raft_dir.join("vote.json"), b"not valid json").unwrap();
+
+        let mut store = FileLogStore::<TestTypeConfig>::new(dir.path()).unwrap();
+        let mut reader = store.get_log_reader().await;
+        let vote = reader.read_vote().await.unwrap();
+        assert!(vote.is_none());
+    }
+
+    #[tokio::test]
+    async fn corrupt_committed_json_starts_fresh() {
+        let dir = tempfile::tempdir().unwrap();
+        let raft_dir = dir.path().join("raft");
+        std::fs::create_dir_all(raft_dir.join("wal")).unwrap();
+        std::fs::write(raft_dir.join("committed.json"), b"garbage").unwrap();
+
+        let mut store = FileLogStore::<TestTypeConfig>::new(dir.path()).unwrap();
+        let committed = store.read_committed().await.unwrap();
+        assert!(committed.is_none());
+    }
+
+    #[tokio::test]
+    async fn wal_skips_non_json_and_invalid_files() {
+        use openraft::vote::leader_id_adv::CommittedLeaderId;
+        let dir = tempfile::tempdir().unwrap();
+        let wal_dir = dir.path().join("raft/wal");
+        std::fs::create_dir_all(&wal_dir).unwrap();
+
+        // Non-JSON file should be skipped
+        std::fs::write(wal_dir.join("notes.txt"), b"not a wal entry").unwrap();
+        // Non-numeric JSON file should be skipped
+        std::fs::write(wal_dir.join("abc.json"), b"not a number index").unwrap();
+        // Corrupt JSON entry should be skipped
+        std::fs::write(wal_dir.join("99.json"), b"not valid entry json").unwrap();
+
+        // Valid entry
+        use openraft::{Entry, EntryPayload, LogId};
+        use crate::test_types::TestCommand;
+        let entry = Entry::<TestTypeConfig> {
+            log_id: LogId::new(CommittedLeaderId::new(1, 1), 1),
+            payload: EntryPayload::Normal(TestCommand::Set("a".into(), "b".into())),
+        };
+        std::fs::write(
+            wal_dir.join("1.json"),
+            serde_json::to_vec(&entry).unwrap(),
+        )
+        .unwrap();
+
+        let mut store = FileLogStore::<TestTypeConfig>::new(dir.path()).unwrap();
+        let state = store.get_log_state().await.unwrap();
+        // Only the valid entry should be loaded
+        assert_eq!(state.last_log_id.unwrap().index, 1);
+    }
+
+    #[tokio::test]
+    async fn truncate_after_none_removes_all_entries() {
+        use openraft::vote::leader_id_adv::CommittedLeaderId;
+        use openraft::{Entry, EntryPayload, LogId};
+        use crate::test_types::TestCommand;
+
+        let dir = tempfile::tempdir().unwrap();
+        let wal_dir = dir.path().join("raft/wal");
+        std::fs::create_dir_all(&wal_dir).unwrap();
+
+        for i in 1..=3u64 {
+            let entry = Entry::<TestTypeConfig> {
+                log_id: LogId::new(CommittedLeaderId::new(1, 1), i),
+                payload: EntryPayload::Normal(TestCommand::Set(
+                    format!("k{i}"),
+                    format!("v{i}"),
+                )),
+            };
+            std::fs::write(
+                wal_dir.join(format!("{i}.json")),
+                serde_json::to_vec(&entry).unwrap(),
+            )
+            .unwrap();
+        }
+
+        let mut store = FileLogStore::<TestTypeConfig>::new(dir.path()).unwrap();
+        store.truncate_after(None).await.unwrap();
+
+        let state = store.get_log_state().await.unwrap();
+        assert!(state.last_log_id.is_none());
+
+        // Verify WAL files removed
+        assert!(!wal_dir.join("1.json").exists());
+        assert!(!wal_dir.join("2.json").exists());
+        assert!(!wal_dir.join("3.json").exists());
+    }
 }

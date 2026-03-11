@@ -20,6 +20,8 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tracing::debug;
 
+use openraft::{RaftTypeConfig, StoredMembership};
+
 use crate::BackupMetadataSource;
 
 /// Core backup metadata, present in every backup regardless of application.
@@ -150,11 +152,18 @@ where
 /// Restore a backup into the given `data_dir` for Raft to load on restart.
 ///
 /// Extracts the snapshot from the backup and places it in the snapshots
-/// directory so the state machine will load it on next startup.
-pub fn restore_backup<S, M>(backup_path: &Path, data_dir: &Path) -> io::Result<BackupMetadata<M>>
+/// directory so the state machine will load it on next startup. The snapshot
+/// is written in `PersistedSnapshot { meta, state }` format that
+/// `load_latest_snapshot` expects.
+pub fn restore_backup<C, S, M>(
+    backup_path: &Path,
+    data_dir: &Path,
+) -> io::Result<BackupMetadata<M>>
 where
+    C: RaftTypeConfig,
     S: Serialize + DeserializeOwned,
     M: Serialize + DeserializeOwned,
+    StoredMembership<C>: Serialize + Default,
 {
     // First verify the backup
     let metadata = verify_backup::<S, M>(backup_path)?;
@@ -180,18 +189,30 @@ where
             entry.read_to_end(&mut state_data)?;
 
             // Validate it's parseable
-            let _state: S = serde_json::from_slice(&state_data)
+            let state: S = serde_json::from_slice(&state_data)
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
-            // Create a snapshot file in a simple format
             let snap_filename = format!(
                 "snap-{}-{}.json",
                 metadata.snapshot_term, metadata.snapshot_index
             );
             let snap_path = snapshot_dir.join(&snap_filename);
 
-            // Write snapshot data directly (the state machine will load it)
-            std::fs::write(&snap_path, &state_data)?;
+            // Write in PersistedSnapshot { meta, state } format that
+            // load_latest_snapshot expects.
+            let persisted = serde_json::json!({
+                "meta": {
+                    "last_log_id": null,
+                    "last_membership": StoredMembership::<C>::default(),
+                    "snapshot_id": format!(
+                        "restored-{}",
+                        metadata.timestamp.format("%Y%m%dT%H%M%SZ")
+                    ),
+                },
+                "state": state,
+            });
+            let json = serde_json::to_vec_pretty(&persisted).map_err(io::Error::other)?;
+            std::fs::write(&snap_path, &json)?;
 
             // Update "current" pointer
             let current = snapshot_dir.join("current");
@@ -223,6 +244,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_types::TestTypeConfig;
 
     #[derive(Debug, Clone, Default, Serialize, Deserialize)]
     struct TestState {
@@ -232,6 +254,16 @@ mod tests {
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct TestMetadata {
         item_count: usize,
+    }
+
+    impl crate::StateMachineState<TestTypeConfig> for TestState {
+        fn apply(&mut self, _cmd: crate::test_types::TestCommand) -> crate::test_types::TestResponse {
+            crate::test_types::TestResponse::Ok
+        }
+
+        fn blank_response() -> crate::test_types::TestResponse {
+            crate::test_types::TestResponse::Ok
+        }
     }
 
     impl BackupMetadataSource for TestState {
@@ -323,7 +355,7 @@ mod tests {
         let data_dir = dir.path().join("restored");
 
         export_backup(&state, &backup_path).await.unwrap();
-        let meta = restore_backup::<TestState, TestMetadata>(&backup_path, &data_dir).unwrap();
+        let meta = restore_backup::<TestTypeConfig, TestState, TestMetadata>(&backup_path, &data_dir).unwrap();
 
         assert_eq!(meta.app.item_count, 3);
 
@@ -342,5 +374,161 @@ mod tests {
         let result =
             verify_backup::<TestState, TestMetadata>(Path::new("/nonexistent/backup.tar.gz"));
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn restore_cleans_up_wal_and_vote() {
+        let state = test_state();
+        let dir = tempfile::tempdir().unwrap();
+        let backup_path = dir.path().join("backup.tar.gz");
+        let data_dir = dir.path().join("restored");
+
+        export_backup(&state, &backup_path).await.unwrap();
+
+        // Create existing WAL and vote files to verify cleanup
+        let wal_dir = data_dir.join("raft").join("wal");
+        std::fs::create_dir_all(&wal_dir).unwrap();
+        std::fs::write(wal_dir.join("1.json"), b"old entry").unwrap();
+        std::fs::write(wal_dir.join("2.json"), b"old entry").unwrap();
+
+        let raft_dir = data_dir.join("raft");
+        std::fs::write(raft_dir.join("vote.json"), b"old vote").unwrap();
+        std::fs::write(raft_dir.join("committed.json"), b"old committed").unwrap();
+
+        restore_backup::<TestTypeConfig, TestState, TestMetadata>(&backup_path, &data_dir).unwrap();
+
+        // WAL entries should be cleaned up
+        assert!(!wal_dir.join("1.json").exists());
+        assert!(!wal_dir.join("2.json").exists());
+        // vote and committed should be cleaned up
+        assert!(!raft_dir.join("vote.json").exists());
+        assert!(!raft_dir.join("committed.json").exists());
+    }
+
+    #[tokio::test]
+    async fn verify_ignores_unknown_entries() {
+        let state = test_state();
+        let dir = tempfile::tempdir().unwrap();
+        let backup_path = dir.path().join("extra-files.tar.gz");
+
+        // Create a tar.gz with metadata, snapshot, AND an extra unknown file
+        let file = std::fs::File::create(&backup_path).unwrap();
+        let enc = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+        let mut tar_builder = tar::Builder::new(enc);
+
+        let state_guard = state.read().await;
+        let state_json = serde_json::to_vec_pretty(&*state_guard).unwrap();
+        let app_metadata = state_guard.backup_metadata();
+        drop(state_guard);
+
+        let metadata = BackupMetadata {
+            timestamp: Utc::now(),
+            snapshot_term: 0,
+            snapshot_index: 0,
+            app: app_metadata,
+        };
+        let metadata_json = serde_json::to_vec(&metadata).unwrap();
+
+        // metadata.json
+        let mut header = tar::Header::new_gnu();
+        header.set_size(metadata_json.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        tar_builder
+            .append_data(&mut header, "backup/metadata.json", metadata_json.as_slice())
+            .unwrap();
+
+        // unknown extra file
+        let extra = b"some extra data";
+        let mut header = tar::Header::new_gnu();
+        header.set_size(extra.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        tar_builder
+            .append_data(&mut header, "backup/extra-info.txt", extra.as_slice())
+            .unwrap();
+
+        // snapshot.json
+        let mut header = tar::Header::new_gnu();
+        header.set_size(state_json.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        tar_builder
+            .append_data(&mut header, "backup/snapshot.json", state_json.as_slice())
+            .unwrap();
+
+        tar_builder.into_inner().unwrap().finish().unwrap();
+
+        // verify should succeed (extra file is ignored)
+        let result = verify_backup::<TestState, TestMetadata>(&backup_path).unwrap();
+        assert_eq!(result.app.item_count, 3);
+    }
+
+    #[tokio::test]
+    async fn restore_snapshot_loadable_by_state_machine() {
+        use crate::state_machine::HpcStateMachine;
+
+        let state = test_state();
+        let dir = tempfile::tempdir().unwrap();
+        let backup_path = dir.path().join("backup.tar.gz");
+        let data_dir = dir.path().join("restored");
+
+        export_backup(&state, &backup_path).await.unwrap();
+        restore_backup::<TestTypeConfig, TestState, TestMetadata>(&backup_path, &data_dir)
+            .unwrap();
+
+        // The state machine should be able to load the restored snapshot
+        let snap_dir = data_dir.join("raft").join("snapshots");
+        let fresh_state = tokio::task::spawn_blocking(move || {
+            let fresh_state =
+                Arc::new(tokio::sync::RwLock::new(TestState { items: vec![] }));
+            let _sm = HpcStateMachine::<TestTypeConfig, TestState>::with_snapshot_dir(
+                fresh_state.clone(),
+                snap_dir,
+            )
+            .unwrap();
+            fresh_state
+        })
+        .await
+        .unwrap();
+
+        let s = fresh_state.read().await;
+        assert_eq!(s.items.len(), 3);
+        assert_eq!(s.items[0], "one");
+    }
+
+    #[tokio::test]
+    async fn verify_missing_metadata_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let backup_path = dir.path().join("no-metadata.tar.gz");
+
+        // Create tar.gz with only snapshot
+        let file = std::fs::File::create(&backup_path).unwrap();
+        let enc = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+        let mut tar_builder = tar::Builder::new(enc);
+
+        let state = TestState::default();
+        let snapshot_json = serde_json::to_vec(&state).unwrap();
+
+        let mut header = tar::Header::new_gnu();
+        header.set_size(snapshot_json.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        tar_builder
+            .append_data(
+                &mut header,
+                "backup/snapshot.json",
+                snapshot_json.as_slice(),
+            )
+            .unwrap();
+
+        tar_builder.into_inner().unwrap().finish().unwrap();
+
+        let result = verify_backup::<TestState, TestMetadata>(&backup_path);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("missing metadata.json"));
     }
 }

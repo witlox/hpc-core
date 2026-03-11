@@ -433,6 +433,73 @@ mod tests {
         let _client_tls = tls_cfg.to_tonic_client_tls();
     }
 
+    #[test]
+    fn peer_tls_config_from_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let ca_path = dir.path().join("ca.pem");
+        let cert_path = dir.path().join("client.pem");
+        let key_path = dir.path().join("client-key.pem");
+
+        std::fs::write(&ca_path, b"-----BEGIN CERTIFICATE-----\nca\n-----END CERTIFICATE-----\n").unwrap();
+        std::fs::write(&cert_path, b"-----BEGIN CERTIFICATE-----\ncert\n-----END CERTIFICATE-----\n").unwrap();
+        std::fs::write(&key_path, b"-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----\n").unwrap();
+
+        // With client identity
+        let config = PeerTlsConfig::from_paths(
+            &ca_path,
+            Some(&cert_path),
+            Some(&key_path),
+            Some("test.local".to_string()),
+        ).unwrap();
+        assert!(config.client_identity.is_some());
+        assert_eq!(config.domain_override.as_deref(), Some("test.local"));
+
+        // Without client identity
+        let config2 = PeerTlsConfig::from_paths(
+            &ca_path,
+            None,
+            None,
+            None,
+        ).unwrap();
+        assert!(config2.client_identity.is_none());
+        assert!(config2.domain_override.is_none());
+    }
+
+    #[test]
+    fn peer_tls_config_from_paths_missing_ca() {
+        let result = PeerTlsConfig::from_paths(
+            &std::path::PathBuf::from("/nonexistent/ca.pem"),
+            None,
+            None,
+            None,
+        );
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn new_client_uses_node_address() {
+        let mut factory = GrpcNetworkFactory::new();
+        factory.register(1, "10.0.0.1:5000".to_string()).await;
+
+        // When BasicNode has a non-empty address, it should be used
+        let node = openraft::impls::BasicNode::new("192.168.1.1:9000");
+        let network = RaftNetworkFactory::<TestTypeConfig>::new_client(&mut factory, 1, &node).await;
+        assert_eq!(network.address, "192.168.1.1:9000");
+        drop(network);
+    }
+
+    #[tokio::test]
+    async fn new_client_falls_back_to_registered_address() {
+        let mut factory = GrpcNetworkFactory::new();
+        factory.register(1, "10.0.0.1:5000".to_string()).await;
+
+        // When BasicNode has empty address, should fall back to registered
+        let node = openraft::impls::BasicNode::new("");
+        let network = RaftNetworkFactory::<TestTypeConfig>::new_client(&mut factory, 1, &node).await;
+        assert_eq!(network.address, "10.0.0.1:5000");
+        drop(network);
+    }
+
     #[tokio::test]
     async fn factory_with_tls_creates_tls_enabled_network() {
         let tls_cfg = PeerTlsConfig {
