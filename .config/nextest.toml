@@ -1,4 +1,4 @@
-# Nextest configuration for Lattice
+# Nextest configuration for hpc-core
 #
 # Slow tests are marked with #[ignore] and skipped by default.
 # Use --run-ignored all to include them.

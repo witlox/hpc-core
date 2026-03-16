@@ -1,4 +1,4 @@
-# Lattice — development task runner
+# hpc-core — development task runner
 # Install: cargo install just
 # Usage:  just <recipe>
 
@@ -19,29 +19,26 @@ fmt-check:
 
 # Run clippy lints (deny warnings)
 lint:
-    cargo clippy --workspace --all-targets -- -D warnings
+    cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-# Run tests (skips tests marked #[ignore], i.e. slow multi-node Raft tests)
+# Run tests
 test:
     #!/usr/bin/env bash
     set -euo pipefail
     if command -v cargo-nextest &>/dev/null; then
-        cargo nextest run --workspace --exclude lattice-acceptance
-        cargo test -p lattice-acceptance
+        cargo nextest run --workspace --all-features
     else
-        cargo test --workspace
+        cargo test --workspace --all-features
     fi
 
-# Run the full test suite including slow tests (~5-10 min)
+# Run the full test suite including slow tests
 test-all:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "Running full test suite including slow tests..."
     if command -v cargo-nextest &>/dev/null; then
-        cargo nextest run --workspace --run-ignored all --exclude lattice-acceptance
-        cargo test -p lattice-acceptance
+        cargo nextest run --workspace --all-features --run-ignored all
     else
-        cargo test --workspace -- --include-ignored
+        cargo test --workspace --all-features -- --include-ignored
     fi
 
 # Run only the slow (ignored) tests
@@ -49,9 +46,9 @@ test-slow:
     #!/usr/bin/env bash
     set -euo pipefail
     if command -v cargo-nextest &>/dev/null; then
-        cargo nextest run --workspace --run-ignored ignored-only --exclude lattice-acceptance
+        cargo nextest run --workspace --all-features --run-ignored ignored-only
     else
-        cargo test --workspace -- --ignored
+        cargo test --workspace --all-features -- --ignored
     fi
 
 # Run cargo-deny checks

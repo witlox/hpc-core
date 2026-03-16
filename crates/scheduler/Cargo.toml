@@ -1,0 +1,25 @@
+[package]
+name = "hpc-scheduler-core"
+version.workspace = true
+edition = "2021"
+license.workspace = true
+description = "Core scheduling algorithms for HPC job schedulers: multi-dimensional knapsack solver, composite cost function, topology-aware placement, reservation-based backfill, conformance grouping, preemption, and walltime enforcement."
+repository.workspace = true
+readme = "README.md"
+keywords = ["hpc", "scheduler", "knapsack", "backfill", "slurm"]
+categories = ["algorithms", "science"]
+
+[dependencies]
+chrono = "0.4"
+uuid = { version = "1", features = ["v4"] }
+serde = { version = "1", features = ["derive"], optional = true }
+
+[features]
+default = []
+serde = ["dep:serde", "chrono/serde", "uuid/serde"]
+
+[dev-dependencies]
+uuid = { version = "1", features = ["v4"] }
+
+[lints]
+workspace = true

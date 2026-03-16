@@ -1,0 +1,34 @@
+[package]
+name = "hpc-auth"
+version.workspace = true
+edition = "2021"
+license.workspace = true
+description = "OAuth2/OIDC authentication client for HPC systems: multi-flow support, per-server token caching, automatic refresh, and PKCE."
+repository.workspace = true
+readme = "README.md"
+keywords = ["hpc", "auth", "oauth2", "oidc"]
+categories = ["authentication"]
+
+[dependencies]
+reqwest = { version = "0.12", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+jsonwebtoken = "9"
+tokio = { version = "1", features = ["full"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+uuid = { version = "1", features = ["v4", "serde"] }
+dirs = "6"
+url = "2"
+sha2 = "0.10"
+base64 = "0.22"
+rand = "0.9"
+
+[dev-dependencies]
+tempfile = "3"
+tokio-test = "0.4"
+
+[lints]
+workspace = true
