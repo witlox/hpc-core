@@ -69,7 +69,7 @@ pub struct CostContext {
     /// Pre-computed memory locality scores per node (0.0-1.0).
     pub memory_locality: HashMap<String, f64>,
     /// Pre-computed conformance fitness per job (0.0-1.0).
-    /// Score = largest_conformance_group_size / requested_nodes.
+    /// Score = `largest_conformance_group_size` / `requested_nodes`.
     /// 1.0 means all candidate nodes share the same configuration.
     pub conformance_fitness: HashMap<uuid::Uuid, f64>,
 }
@@ -97,7 +97,7 @@ pub struct CostEvaluator {
 }
 
 impl CostEvaluator {
-    pub fn new(weights: CostWeights) -> Self {
+    pub const fn new(weights: CostWeights) -> Self {
         Self { weights }
     }
 
@@ -106,39 +106,60 @@ impl CostEvaluator {
     pub fn score<J: Job>(&self, job: &J, ctx: &CostContext) -> f64 {
         let w = &self.weights;
 
-        let base = w.priority * self.f1_priority(job)
-            + w.wait_time * self.f2_wait_time(job, ctx)
-            + w.fair_share * self.f3_fair_share(job, ctx)
-            + w.topology * self.f4_topology(job, ctx)
-            + w.data_readiness * self.f5_data_readiness(job, ctx)
-            + w.backlog * self.f6_backlog(ctx)
-            + w.energy * self.f7_energy(ctx)
-            + w.checkpoint_efficiency * self.f8_checkpoint(job)
-            + w.conformance * self.f9_conformance(job, ctx);
+        let base = w.conformance.mul_add(
+            self.f9_conformance(job, ctx),
+            w.checkpoint_efficiency.mul_add(
+                self.f8_checkpoint(job),
+                w.energy.mul_add(
+                    self.f7_energy(ctx),
+                    w.backlog.mul_add(
+                        self.f6_backlog(ctx),
+                        w.data_readiness.mul_add(
+                            self.f5_data_readiness(job, ctx),
+                            w.topology.mul_add(
+                                self.f4_topology(job, ctx),
+                                w.fair_share.mul_add(
+                                    self.f3_fair_share(job, ctx),
+                                    w.priority.mul_add(
+                                        self.f1_priority(job),
+                                        w.wait_time * self.f2_wait_time(job, ctx),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        );
 
         base * self.budget_penalty(job, ctx)
     }
 
-    /// f₁: priority_class — normalized to [0.0, 1.0]
+    /// f₁: `priority_class` — normalized to [0.0, 1.0]
+    #[allow(clippy::unused_self)]
     pub fn f1_priority<J: Job>(&self, job: &J) -> f64 {
-        job.preemption_class() as f64 / 10.0
+        f64::from(job.preemption_class()) / 10.0
     }
 
-    /// f₂: wait_time_factor — log-scaled anti-starvation
+    /// f₂: `wait_time_factor` — log-scaled anti-starvation
+    #[allow(clippy::unused_self)]
     pub fn f2_wait_time<J: Job>(&self, job: &J, ctx: &CostContext) -> f64 {
+        // Wait seconds are small relative to f64 mantissa; precision loss is negligible
+        #[allow(clippy::cast_precision_loss)]
         let wait_seconds = (ctx.now - job.created_at()).num_seconds().max(0) as f64;
-        (1.0 + wait_seconds / ctx.reference_wait_seconds).ln()
+        (wait_seconds / ctx.reference_wait_seconds).ln_1p()
     }
 
-    /// f₃: fair_share_deficit — how far the tenant is from their target share.
+    /// f₃: `fair_share_deficit` — how far the tenant is from their target share.
     /// Burst-aware: expands effective target when system has spare capacity.
+    #[allow(clippy::unused_self)]
     pub fn f3_fair_share<J: Job>(&self, job: &J, ctx: &CostContext) -> f64 {
         match ctx.tenant_usage.get(job.tenant_id()) {
             Some(usage) if usage.target_share > 0.0 => {
                 let effective_target = match usage.burst_allowance {
                     Some(burst) if usage.system_utilization < 0.8 => {
                         let spare_factor = (0.8 - usage.system_utilization) / 0.8;
-                        usage.target_share * (1.0 + burst * spare_factor)
+                        usage.target_share * burst.mul_add(spare_factor, 1.0)
                     }
                     _ => usage.target_share,
                 };
@@ -148,34 +169,36 @@ impl CostEvaluator {
         }
     }
 
-    /// f₄: topology_fitness — inter-node group packing + intra-node memory locality.
+    /// f₄: `topology_fitness` — inter-node group packing + intra-node memory locality.
     pub fn f4_topology<J: Job>(&self, job: &J, ctx: &CostContext) -> f64 {
         let inter_node = self.f4_inter_node(job, ctx);
         let intra_node = self.f4_memory_locality(job, ctx);
         let beta = self.memory_topology_beta(job);
-        beta * inter_node + (1.0 - beta) * intra_node
+        beta.mul_add(inter_node, (1.0 - beta) * intra_node)
     }
 
+    #[allow(clippy::unused_self)]
     fn f4_inter_node<J: Job>(&self, job: &J, ctx: &CostContext) -> f64 {
         if ctx.max_groups == 0 {
             return 0.5;
         }
         let requested_nodes = job.node_count_min();
-        let groups_needed = (requested_nodes as f64 / ctx.max_groups as f64)
+        let groups_needed = (f64::from(requested_nodes) / f64::from(ctx.max_groups))
             .ceil()
             .max(1.0);
-        1.0 - (groups_needed / ctx.max_groups as f64).min(1.0)
+        1.0 - (groups_needed / f64::from(ctx.max_groups)).min(1.0)
     }
 
+    #[allow(clippy::unused_self)]
     fn f4_memory_locality<J: Job>(&self, job: &J, ctx: &CostContext) -> f64 {
         if ctx.memory_locality.is_empty() {
             return 0.5;
         }
 
-        let nodes: Vec<&String> = if !job.assigned_nodes().is_empty() {
-            job.assigned_nodes().iter().collect()
-        } else {
+        let nodes: Vec<&String> = if job.assigned_nodes().is_empty() {
             ctx.memory_locality.keys().collect()
+        } else {
+            job.assigned_nodes().iter().collect()
         };
 
         if nodes.is_empty() {
@@ -186,6 +209,8 @@ impl CostEvaluator {
             .iter()
             .map(|n| ctx.memory_locality.get(*n).copied().unwrap_or(0.5))
             .sum();
+        // Node count won't exceed f64 mantissa precision
+        #[allow(clippy::cast_precision_loss)]
         let avg = sum / nodes.len() as f64;
 
         if job.prefer_same_numa() {
@@ -195,6 +220,7 @@ impl CostEvaluator {
         }
     }
 
+    #[allow(clippy::unused_self)]
     fn memory_topology_beta<J: Job>(&self, job: &J) -> f64 {
         if job.node_count_min() <= 1 {
             0.3 // Single-node: memory locality matters more
@@ -203,12 +229,14 @@ impl CostEvaluator {
         }
     }
 
-    /// f₅: data_readiness — fraction of input data on hot tier.
+    /// f₅: `data_readiness` — fraction of input data on hot tier.
+    #[allow(clippy::unused_self)]
     pub fn f5_data_readiness<J: Job>(&self, job: &J, ctx: &CostContext) -> f64 {
         ctx.data_readiness.get(&job.id()).copied().unwrap_or(0.5)
     }
 
-    /// f₆: backlog_pressure — system-wide queue pressure.
+    /// f₆: `backlog_pressure` — system-wide queue pressure.
+    #[allow(clippy::unused_self)]
     pub fn f6_backlog(&self, ctx: &CostContext) -> f64 {
         if ctx.backlog.running_gpu_hours <= 0.0 {
             return 0.0;
@@ -216,22 +244,24 @@ impl CostEvaluator {
         (ctx.backlog.queued_gpu_hours / ctx.backlog.running_gpu_hours).min(1.0)
     }
 
-    /// f₇: energy_cost — higher when energy is cheaper.
+    /// f₇: `energy_cost` — higher when energy is cheaper.
+    #[allow(clippy::unused_self)]
     pub fn f7_energy(&self, ctx: &CostContext) -> f64 {
         1.0 - ctx.energy_price.clamp(0.0, 1.0)
     }
 
     /// GPU-hours budget penalty.
+    #[allow(clippy::unused_self)]
     pub fn budget_penalty<J: Job>(&self, job: &J, ctx: &CostContext) -> f64 {
-        match ctx.budget_utilization.get(job.tenant_id()) {
-            Some(bu) => budget_penalty_curve(bu.fraction_used),
-            None => 1.0,
-        }
+        ctx.budget_utilization
+            .get(job.tenant_id())
+            .map_or(1.0, |bu| budget_penalty_curve(bu.fraction_used))
     }
 
-    /// f₉: conformance_fitness — configuration homogeneity of candidate nodes.
+    /// f₉: `conformance_fitness` — configuration homogeneity of candidate nodes.
     /// Pre-computed per job and stored in `CostContext::conformance_fitness`.
     /// Returns 0.5 (neutral) if not available.
+    #[allow(clippy::unused_self)]
     pub fn f9_conformance<J: Job>(&self, job: &J, ctx: &CostContext) -> f64 {
         ctx.conformance_fitness
             .get(&job.id())
@@ -239,7 +269,8 @@ impl CostEvaluator {
             .unwrap_or(0.5)
     }
 
-    /// f₈: checkpoint_efficiency — fast checkpoint = more attractive.
+    /// f₈: `checkpoint_efficiency` — fast checkpoint = more attractive.
+    #[allow(clippy::unused_self)]
     pub fn f8_checkpoint<J: Job>(&self, job: &J) -> f64 {
         match job.checkpoint_kind() {
             CheckpointKind::Auto => 1.0 / (1.0 + 5.0),
@@ -259,8 +290,8 @@ fn budget_penalty_curve(u: f64) -> f64 {
         1.0
     } else if u <= 1.2 {
         let t = (u - 0.8) / 0.4; // 0.0 at u=0.8, 1.0 at u=1.2
-        let cosine = (1.0 + (t * std::f64::consts::PI).cos()) / 2.0; // 1.0 → 0.0
-        0.05 + 0.95 * cosine // 1.0 → 0.05
+        let cosine = f64::midpoint(1.0, (t * std::f64::consts::PI).cos()); // 1.0 → 0.0
+        0.95f64.mul_add(cosine, 0.05) // 1.0 → 0.05
     } else {
         0.05
     }

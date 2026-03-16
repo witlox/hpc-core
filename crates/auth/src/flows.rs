@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::time::Duration;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -13,7 +14,7 @@ use tracing::{debug, info};
 use crate::error::AuthError;
 use crate::types::{OidcDiscovery, TokenSet};
 
-/// OAuth2 token response from the IdP.
+/// `OAuth2` token response from the `IdP`.
 #[derive(Debug, Deserialize)]
 struct TokenResponse {
     access_token: String,
@@ -27,8 +28,10 @@ struct TokenResponse {
 
 impl TokenResponse {
     fn into_token_set(self) -> TokenSet {
-        let expires_at =
-            Utc::now() + chrono::Duration::seconds(self.expires_in.unwrap_or(3600) as i64);
+        let expires_at = Utc::now()
+            + chrono::Duration::seconds(
+                i64::try_from(self.expires_in.unwrap_or(3600)).unwrap_or(i64::MAX),
+            );
         let scopes = self
             .scope
             .map(|s| s.split_whitespace().map(String::from).collect())
@@ -42,7 +45,7 @@ impl TokenResponse {
     }
 }
 
-/// Device authorization response from the IdP.
+/// Device authorization response from the `IdP`.
 #[derive(Debug, Deserialize)]
 struct DeviceAuthResponse {
     device_code: String,
@@ -53,7 +56,7 @@ struct DeviceAuthResponse {
     interval: u64,
 }
 
-fn default_interval() -> u64 {
+const fn default_interval() -> u64 {
     5
 }
 
@@ -88,7 +91,7 @@ fn generate_state() -> String {
 
 /// Authorization Code with PKCE flow (RFC 7636).
 ///
-/// Opens the user's browser for IdP login, listens on a localhost callback,
+/// Opens the user's browser for `IdP` login, listens on a localhost callback,
 /// then exchanges the authorization code for tokens.
 pub async fn auth_code_pkce(
     discovery: &OidcDiscovery,
@@ -161,7 +164,7 @@ pub async fn auth_code_pkce(
     Ok(token_response.into_token_set())
 }
 
-/// Wait for the OAuth2 callback on the localhost listener.
+/// Wait for the `OAuth2` callback on the localhost listener.
 ///
 /// Reads the HTTP request, extracts the `code` and `state` query parameters,
 /// sends back a simple HTML response, and returns the authorization code.
@@ -172,11 +175,17 @@ async fn wait_for_callback(
     use tokio::io::AsyncReadExt;
     use tokio::io::AsyncWriteExt;
 
-    let (mut stream, _addr) = listener.accept().await.map_err(|e| format!("accept failed: {e}"))?;
+    let (mut stream, _addr) = listener
+        .accept()
+        .await
+        .map_err(|e| format!("accept failed: {e}"))?;
 
     // Read the HTTP request (we only need the first line for the GET path).
     let mut buf = vec![0u8; 4096];
-    let n = stream.read(&mut buf).await.map_err(|e| format!("read failed: {e}"))?;
+    let n = stream
+        .read(&mut buf)
+        .await
+        .map_err(|e| format!("read failed: {e}"))?;
     let request = String::from_utf8_lossy(&buf[..n]);
 
     // Parse the request line: GET /callback?code=...&state=... HTTP/1.1
@@ -214,7 +223,10 @@ async fn wait_for_callback(
         return Err("state parameter mismatch (possible CSRF)".to_string());
     }
 
-    let code = params.get("code").ok_or("missing code parameter")?.to_string();
+    let code = params
+        .get("code")
+        .ok_or("missing code parameter")?
+        .to_string();
 
     // Send success response.
     let body =
@@ -238,7 +250,10 @@ fn open_browser(url: &str) {
     } else if cfg!(target_os = "linux") {
         std::process::Command::new("xdg-open").arg(url).spawn()
     } else {
-        Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "unsupported platform"))
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "unsupported platform",
+        ))
     };
 
     match result {
@@ -259,9 +274,12 @@ pub async fn device_code(
     client_id: &str,
     timeout: Duration,
 ) -> Result<TokenSet, AuthError> {
-    let device_endpoint = discovery.device_authorization_endpoint.as_deref().ok_or_else(|| {
-        AuthError::OAuthFailed("no device_authorization_endpoint in discovery".to_string())
-    })?;
+    let device_endpoint = discovery
+        .device_authorization_endpoint
+        .as_deref()
+        .ok_or_else(|| {
+            AuthError::OAuthFailed("no device_authorization_endpoint in discovery".to_string())
+        })?;
 
     // 1. Request device authorization.
     let http = reqwest::Client::new();
@@ -312,10 +330,12 @@ pub async fn device_code(
         poll_params.insert("device_code", &device_auth.device_code);
         poll_params.insert("client_id", client_id);
 
-        let poll_response =
-            http.post(&discovery.token_endpoint).form(&poll_params).send().await.map_err(|e| {
-                AuthError::IdpUnreachable(format!("{}: {e}", discovery.token_endpoint))
-            })?;
+        let poll_response = http
+            .post(&discovery.token_endpoint)
+            .form(&poll_params)
+            .send()
+            .await
+            .map_err(|e| AuthError::IdpUnreachable(format!("{}: {e}", discovery.token_endpoint)))?;
 
         if poll_response.status().is_success() {
             let token_response: TokenResponse = poll_response
@@ -336,7 +356,10 @@ pub async fn device_code(
                 }
                 "slow_down" => {
                     interval_secs += 5;
-                    debug!(interval = interval_secs, "device code: slowing down poll interval");
+                    debug!(
+                        interval = interval_secs,
+                        "device code: slowing down poll interval"
+                    );
                 }
                 "expired_token" => {
                     return Err(AuthError::Timeout);
@@ -345,7 +368,9 @@ pub async fn device_code(
                     return Err(AuthError::OAuthFailed("user denied access".to_string()));
                 }
                 other => {
-                    return Err(AuthError::OAuthFailed(format!("device code error: {other}")));
+                    return Err(AuthError::OAuthFailed(format!(
+                        "device code error: {other}"
+                    )));
                 }
             },
             Err(_) => {
@@ -359,7 +384,7 @@ pub async fn device_code(
 
 /// Client Credentials flow (machine-to-machine).
 ///
-/// This is the simplest OAuth2 flow -- a POST to the token endpoint.
+/// This is the simplest `OAuth2` flow -- a POST to the token endpoint.
 pub async fn client_credentials(
     token_endpoint: &str,
     client_id: &str,
@@ -404,9 +429,15 @@ pub async fn manual_paste(
     timeout: Duration,
 ) -> Result<TokenSet, AuthError> {
     // 1. Generate PKCE parameters (use PKCE if the IdP supports it).
-    let supports_pkce = discovery.code_challenge_methods_supported.contains(&"S256".to_string());
+    let supports_pkce = discovery
+        .code_challenge_methods_supported
+        .contains(&"S256".to_string());
 
-    let code_verifier = if supports_pkce { Some(generate_code_verifier()) } else { None };
+    let code_verifier = if supports_pkce {
+        Some(generate_code_verifier())
+    } else {
+        None
+    };
 
     let state = generate_state();
 
@@ -425,10 +456,11 @@ pub async fn manual_paste(
 
     if let Some(ref verifier) = code_verifier {
         let challenge = compute_code_challenge(verifier);
-        auth_url.push_str(&format!(
+        let _ = write!(
+            auth_url,
             "&code_challenge={}&code_challenge_method=S256",
             urlencoding::encode(&challenge)
-        ));
+        );
     }
 
     // 3. Print the URL and prompt for the code.
@@ -451,7 +483,9 @@ pub async fn manual_paste(
 
     let code = code.trim().to_string();
     if code.is_empty() {
-        return Err(AuthError::OAuthFailed("empty authorization code".to_string()));
+        return Err(AuthError::OAuthFailed(
+            "empty authorization code".to_string(),
+        ));
     }
 
     // 5. Exchange the code for tokens.
@@ -511,7 +545,9 @@ pub async fn refresh_token(
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
-        return Err(AuthError::OAuthFailed(format!("refresh_token failed: HTTP {status}: {body}")));
+        return Err(AuthError::OAuthFailed(format!(
+            "refresh_token failed: HTTP {status}: {body}"
+        )));
     }
 
     let token_response: TokenResponse = response
@@ -522,10 +558,10 @@ pub async fn refresh_token(
     Ok(token_response.into_token_set())
 }
 
-/// Discover IdP configuration from the pact journal server.
+/// Discover `IdP` configuration from the pact journal server.
 ///
-/// Fetches `{server_url}/auth/discovery` to get the IdP URL and client ID,
-/// then fetches OIDC discovery from the IdP.
+/// Fetches `{server_url}/auth/discovery` to get the `IdP` URL and client ID,
+/// then fetches OIDC discovery from the `IdP`.
 pub async fn server_discovery(
     server_url: &str,
     timeout: Duration,
@@ -556,8 +592,10 @@ pub async fn server_discovery(
         .map_err(|e| AuthError::Internal(format!("invalid server discovery response: {e}")))?;
 
     // 2. Fetch OIDC discovery from the IdP.
-    let oidc_url =
-        format!("{}/.well-known/openid-configuration", server_disc.idp_url.trim_end_matches('/'));
+    let oidc_url = format!(
+        "{}/.well-known/openid-configuration",
+        server_disc.idp_url.trim_end_matches('/')
+    );
     let oidc_response = http
         .get(&oidc_url)
         .send()
@@ -586,7 +624,7 @@ struct ServerDiscoveryResponse {
     client_id: String,
 }
 
-/// Build an authorization URL (exposed for testing and manual_paste).
+/// Build an authorization URL (exposed for testing and `manual_paste`).
 pub fn build_auth_url(
     authorization_endpoint: &str,
     client_id: &str,
@@ -604,16 +642,18 @@ pub fn build_auth_url(
         urlencoding::encode(state),
     );
     if let Some(challenge) = code_challenge {
-        url.push_str(&format!(
+        let _ = write!(
+            url,
             "&code_challenge={}&code_challenge_method=S256",
             urlencoding::encode(challenge)
-        ));
+        );
     }
     url
 }
 
 /// URL-encode a string (minimal implementation for query parameters).
 mod urlencoding {
+    use std::fmt::Write as _;
     pub fn encode(s: &str) -> String {
         let mut result = String::with_capacity(s.len());
         for byte in s.bytes() {
@@ -622,7 +662,7 @@ mod urlencoding {
                     result.push(byte as char);
                 }
                 _ => {
-                    result.push_str(&format!("%{byte:02X}"));
+                    let _ = write!(result, "%{byte:02X}");
                 }
             }
         }
@@ -645,7 +685,9 @@ mod tests {
                 verifier.len()
             );
             // Only URL-safe base64 characters.
-            assert!(verifier.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+            assert!(verifier
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
         }
     }
 
@@ -656,7 +698,9 @@ mod tests {
         // The challenge should be consistent for the same verifier.
         assert_eq!(challenge, compute_code_challenge(verifier));
         // It should be URL-safe base64 encoded.
-        assert!(challenge.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+        assert!(challenge
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
         // SHA-256 output is 32 bytes, base64(32) = 43 chars (no padding).
         assert_eq!(challenge.len(), 43);
     }
@@ -675,7 +719,9 @@ mod tests {
     fn generate_state_is_nonempty_and_urlsafe() {
         let state = generate_state();
         assert!(!state.is_empty());
-        assert!(state.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+        assert!(state
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
     }
 
     #[test]
@@ -720,7 +766,10 @@ mod tests {
             "interval": 5
         }"#;
         let resp: DeviceAuthResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(resp.device_code, "GmRhmhcxhwAzkoEqiMEg_DnyEysNkuNhszIySk9eS");
+        assert_eq!(
+            resp.device_code,
+            "GmRhmhcxhwAzkoEqiMEg_DnyEysNkuNhszIySk9eS"
+        );
         assert_eq!(resp.user_code, "WDJB-MJHT");
         assert_eq!(resp.verification_uri, "https://idp.example.com/device");
         assert_eq!(resp.expires_in, 1800);
@@ -773,6 +822,9 @@ mod tests {
     fn urlencoding_encodes_special_chars() {
         assert_eq!(urlencoding::encode("hello world"), "hello%20world");
         assert_eq!(urlencoding::encode("a+b=c"), "a%2Bb%3Dc");
-        assert_eq!(urlencoding::encode("safe-chars_here.ok~"), "safe-chars_here.ok~");
+        assert_eq!(
+            urlencoding::encode("safe-chars_here.ok~"),
+            "safe-chars_here.ok~"
+        );
     }
 }

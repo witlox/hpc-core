@@ -18,7 +18,7 @@ pub struct AuthClient {
 
 impl AuthClient {
     /// Create a new auth client with the given configuration.
-    pub fn new(config: AuthClientConfig) -> Result<Self, AuthError> {
+    pub fn new(config: AuthClientConfig) -> Self {
         let cache = TokenCache::new(
             dirs::config_dir()
                 .unwrap_or_else(|| std::path::PathBuf::from("."))
@@ -26,19 +26,27 @@ impl AuthClient {
             config.permission_mode,
         );
         let discovery = DiscoveryCache::new(config.timeout);
-        Ok(Self { config, cache, discovery })
+        Self {
+            config,
+            cache,
+            discovery,
+        }
     }
 
     /// Create an auth client with an externally-constructed cache (for testing).
-    pub fn with_cache(config: AuthClientConfig, cache: TokenCache) -> Result<Self, AuthError> {
+    pub fn with_cache(config: AuthClientConfig, cache: TokenCache) -> Self {
         let discovery = DiscoveryCache::new(config.timeout);
-        Ok(Self { config, cache, discovery })
+        Self {
+            config,
+            cache,
+            discovery,
+        }
     }
 
     /// Initiate login (Auth8: cascading flow selection).
     ///
     /// 1. Check if already logged in (valid token exists).
-    /// 2. Discover IdP (server discovery, then OIDC discovery).
+    /// 2. Discover `IdP` (server discovery, then OIDC discovery).
     /// 3. Select flow based on discovery capabilities + config overrides.
     /// 4. Execute flow to get `TokenSet`.
     /// 5. Store in cache.
@@ -63,8 +71,10 @@ impl AuthClient {
         let (discovery, client_id) = self.discover_idp().await?;
 
         // Auth8: Cascading flow selection based on discovery capabilities.
-        let flow = self.select_flow(&discovery, &client_id)?;
-        let tokens = self.execute_flow(&flow, Some(&discovery), Some(&client_id)).await?;
+        let flow = self.select_flow(&discovery, &client_id);
+        let tokens = self
+            .execute_flow(&flow, Some(&discovery), Some(&client_id))
+            .await?;
         self.cache.write(&self.config.server_url, &tokens)?;
         info!(server = %self.config.server_url, "login successful");
         Ok(tokens)
@@ -72,8 +82,8 @@ impl AuthClient {
 
     /// Logout (Auth4: always clears local cache).
     ///
-    /// Clears local cache first, then attempts IdP token revocation.
-    /// Local cache is always cleared regardless of IdP revocation result.
+    /// Clears local cache first, then attempts `IdP` token revocation.
+    /// Local cache is always cleared regardless of `IdP` revocation result.
     pub async fn logout(&self) -> Result<(), AuthError> {
         // Read existing tokens before clearing (for revocation).
         let tokens = self.cache.read(&self.config.server_url)?;
@@ -101,11 +111,14 @@ impl AuthClient {
     /// Get a valid access token (Auth1, Auth3).
     ///
     /// 1. Read from cache.
-    /// 2. If valid (not expired), return access_token.
-    /// 3. If expired + refresh_token valid, call refresh_token flow.
+    /// 2. If valid (not expired), return `access_token`.
+    /// 3. If expired + `refresh_token` valid, call `refresh_token` flow.
     /// 4. If both expired, return `TokenExpired` error.
     pub async fn get_token(&self) -> Result<String, AuthError> {
-        let tokens = self.cache.read(&self.config.server_url)?.ok_or(AuthError::TokenExpired)?;
+        let tokens = self
+            .cache
+            .read(&self.config.server_url)?
+            .ok_or(AuthError::TokenExpired)?;
 
         // Token still valid.
         if tokens.expires_at > Utc::now() {
@@ -143,11 +156,11 @@ impl AuthClient {
         &self.config.server_url
     }
 
-    /// Discover IdP configuration.
+    /// Discover `IdP` configuration.
     ///
     /// If `idp_override` is set, uses that directly. Otherwise, fetches the
-    /// journal server's `/auth/discovery` endpoint to get the IdP URL and client ID,
-    /// then fetches OIDC discovery from the IdP.
+    /// journal server's `/auth/discovery` endpoint to get the `IdP` URL and client ID,
+    /// then fetches OIDC discovery from the `IdP`.
     async fn discover_idp(&self) -> Result<(OidcDiscovery, String), AuthError> {
         if let Some(ref idp) = self.config.idp_override {
             // Fetch real OIDC discovery from the issuer URL.
@@ -171,33 +184,31 @@ impl AuthClient {
         flows::server_discovery(&self.config.server_url, self.config.timeout).await
     }
 
-    /// Auth8: Select the best OAuth2 flow based on discovery capabilities.
+    /// Auth8: Select the best `OAuth2` flow based on discovery capabilities.
     #[allow(clippy::unused_self)]
-    fn select_flow(
-        &self,
-        discovery: &OidcDiscovery,
-        _client_id: &str,
-    ) -> Result<OAuthFlow, AuthError> {
+    fn select_flow(&self, discovery: &OidcDiscovery, _client_id: &str) -> OAuthFlow {
         let grants = &discovery.grant_types_supported;
 
         // Cascade: Auth Code PKCE > Device Code > Manual Paste.
         if grants.contains(&"authorization_code".to_string())
-            && discovery.code_challenge_methods_supported.contains(&"S256".to_string())
+            && discovery
+                .code_challenge_methods_supported
+                .contains(&"S256".to_string())
         {
-            return Ok(OAuthFlow::AuthCodePkce);
+            return OAuthFlow::AuthCodePkce;
         }
 
         if grants.contains(&"urn:ietf:params:oauth:grant-type:device_code".to_string())
             && discovery.device_authorization_endpoint.is_some()
         {
-            return Ok(OAuthFlow::DeviceCode);
+            return OAuthFlow::DeviceCode;
         }
 
         // Fallback: manual paste.
-        Ok(OAuthFlow::ManualPaste)
+        OAuthFlow::ManualPaste
     }
 
-    /// Execute the selected OAuth2 flow.
+    /// Execute the selected `OAuth2` flow.
     async fn execute_flow(
         &self,
         flow: &OAuthFlow,
@@ -206,7 +217,12 @@ impl AuthClient {
     ) -> Result<TokenSet, AuthError> {
         let resolve_client_id = || -> &str {
             client_id
-                .or_else(|| self.config.idp_override.as_ref().map(|i| i.client_id.as_str()))
+                .or_else(|| {
+                    self.config
+                        .idp_override
+                        .as_ref()
+                        .map(|i| i.client_id.as_str())
+                })
                 .unwrap_or_default()
         };
 
@@ -223,8 +239,13 @@ impl AuthClient {
                 })?;
                 flows::device_code(disc, resolve_client_id(), self.config.timeout).await
             }
-            OAuthFlow::ClientCredentials { client_id, client_secret } => {
-                let endpoint = discovery.map(|d| d.token_endpoint.as_str()).unwrap_or_default();
+            OAuthFlow::ClientCredentials {
+                client_id,
+                client_secret,
+            } => {
+                let endpoint = discovery
+                    .map(|d| d.token_endpoint.as_str())
+                    .unwrap_or_default();
                 flows::client_credentials(endpoint, client_id, client_secret).await
             }
             OAuthFlow::ManualPaste => {
@@ -247,16 +268,23 @@ impl AuthClient {
             ));
         };
 
-        let client_id =
-            self.config.idp_override.as_ref().map(|i| i.client_id.as_str()).unwrap_or_default();
+        let client_id = self
+            .config
+            .idp_override
+            .as_ref()
+            .map(|i| i.client_id.as_str())
+            .unwrap_or_default();
 
         flows::refresh_token(&token_endpoint, refresh_tok, client_id).await
     }
 
-    /// Revoke a token at the IdP (best-effort).
+    /// Revoke a token at the `IdP` (best-effort).
     async fn revoke_token(&self, token: &str) -> Result<(), AuthError> {
-        let revocation_endpoint =
-            self.config.idp_override.as_ref().and_then(|i| i.revocation_endpoint.as_deref());
+        let revocation_endpoint = self
+            .config
+            .idp_override
+            .as_ref()
+            .and_then(|i| i.revocation_endpoint.as_deref());
 
         let Some(endpoint) = revocation_endpoint else {
             debug!("no revocation endpoint configured, skipping IdP revocation");
@@ -326,7 +354,7 @@ mod tests {
         let server = "https://test.example.com";
         cache.write(server, &valid_tokens()).unwrap();
 
-        let client = AuthClient::with_cache(test_config(server), cache).unwrap();
+        let client = AuthClient::with_cache(test_config(server), cache);
         let token = client.get_token().await.unwrap();
         assert_eq!(token, "valid_access");
     }
@@ -338,7 +366,7 @@ mod tests {
         let server = "https://test.example.com";
         cache.write(server, &expired_tokens_no_refresh()).unwrap();
 
-        let client = AuthClient::with_cache(test_config(server), cache).unwrap();
+        let client = AuthClient::with_cache(test_config(server), cache);
         let result = client.get_token().await;
         assert!(matches!(result, Err(AuthError::TokenExpired)));
     }
@@ -349,7 +377,7 @@ mod tests {
         let cache = TokenCache::new(tmp.path().to_path_buf(), PermissionMode::Strict);
         let server = "https://test.example.com";
 
-        let client = AuthClient::with_cache(test_config(server), cache).unwrap();
+        let client = AuthClient::with_cache(test_config(server), cache);
         let result = client.get_token().await;
         assert!(matches!(result, Err(AuthError::TokenExpired)));
     }
@@ -361,7 +389,7 @@ mod tests {
         let server = "https://test.example.com";
         cache.write(server, &valid_tokens()).unwrap();
 
-        let client = AuthClient::with_cache(test_config(server), cache).unwrap();
+        let client = AuthClient::with_cache(test_config(server), cache);
         assert!(client.is_logged_in());
     }
 
@@ -372,7 +400,7 @@ mod tests {
         let server = "https://test.example.com";
         cache.write(server, &expired_tokens_no_refresh()).unwrap();
 
-        let client = AuthClient::with_cache(test_config(server), cache).unwrap();
+        let client = AuthClient::with_cache(test_config(server), cache);
         assert!(!client.is_logged_in());
     }
 
@@ -382,7 +410,7 @@ mod tests {
         let cache = TokenCache::new(tmp.path().to_path_buf(), PermissionMode::Strict);
         let server = "https://test.example.com";
 
-        let client = AuthClient::with_cache(test_config(server), cache).unwrap();
+        let client = AuthClient::with_cache(test_config(server), cache);
         assert!(!client.is_logged_in());
     }
 
@@ -392,7 +420,7 @@ mod tests {
         let cache = TokenCache::new(tmp.path().to_path_buf(), PermissionMode::Strict);
         let server = "https://test.example.com:9443";
 
-        let client = AuthClient::with_cache(test_config(server), cache).unwrap();
+        let client = AuthClient::with_cache(test_config(server), cache);
         assert_eq!(client.server_url(), server);
     }
 
@@ -403,7 +431,7 @@ mod tests {
         let server = "https://test.example.com";
         cache.write(server, &valid_tokens()).unwrap();
 
-        let client = AuthClient::with_cache(test_config(server), cache).unwrap();
+        let client = AuthClient::with_cache(test_config(server), cache);
         assert!(client.is_logged_in());
 
         client.logout().await.unwrap();
@@ -415,7 +443,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let cache = TokenCache::new(tmp.path().to_path_buf(), PermissionMode::Strict);
         let server = "https://test.example.com";
-        let client = AuthClient::with_cache(test_config(server), cache).unwrap();
+        let client = AuthClient::with_cache(test_config(server), cache);
 
         let discovery = OidcDiscovery {
             issuer: "https://idp.example.com".to_string(),
@@ -431,7 +459,7 @@ mod tests {
             code_challenge_methods_supported: vec!["S256".to_string()],
         };
 
-        let flow = client.select_flow(&discovery, "client-id").unwrap();
+        let flow = client.select_flow(&discovery, "client-id");
         assert!(matches!(flow, OAuthFlow::AuthCodePkce));
     }
 
@@ -440,7 +468,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let cache = TokenCache::new(tmp.path().to_path_buf(), PermissionMode::Strict);
         let server = "https://test.example.com";
-        let client = AuthClient::with_cache(test_config(server), cache).unwrap();
+        let client = AuthClient::with_cache(test_config(server), cache);
 
         let discovery = OidcDiscovery {
             issuer: "https://idp.example.com".to_string(),
@@ -453,7 +481,7 @@ mod tests {
             code_challenge_methods_supported: vec![],
         };
 
-        let flow = client.select_flow(&discovery, "client-id").unwrap();
+        let flow = client.select_flow(&discovery, "client-id");
         assert!(matches!(flow, OAuthFlow::DeviceCode));
     }
 
@@ -462,7 +490,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let cache = TokenCache::new(tmp.path().to_path_buf(), PermissionMode::Strict);
         let server = "https://test.example.com";
-        let client = AuthClient::with_cache(test_config(server), cache).unwrap();
+        let client = AuthClient::with_cache(test_config(server), cache);
 
         let discovery = OidcDiscovery {
             issuer: "https://idp.example.com".to_string(),
@@ -475,7 +503,7 @@ mod tests {
             code_challenge_methods_supported: vec![],
         };
 
-        let flow = client.select_flow(&discovery, "client-id").unwrap();
+        let flow = client.select_flow(&discovery, "client-id");
         assert!(matches!(flow, OAuthFlow::ManualPaste));
     }
 }

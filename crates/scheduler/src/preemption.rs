@@ -116,11 +116,13 @@ fn preemption_cost<J: Job>(job: &J, config: &PreemptionConfig) -> f64 {
         CheckpointKind::Auto => 5.0,
         CheckpointKind::Manual => 10.0,
         CheckpointKind::None => {
+            // Node counts and elapsed minutes are small; precision loss is negligible
+            #[allow(clippy::cast_precision_loss)]
             let nodes = job.assigned_nodes().len() as f64;
+            #[allow(clippy::cast_precision_loss)]
             let elapsed = job
                 .started_at()
-                .map(|s| (config.now - s).num_minutes() as f64)
-                .unwrap_or(0.0);
+                .map_or(0.0, |s| (config.now - s).num_minutes() as f64);
             nodes * elapsed
         }
     };
@@ -141,15 +143,17 @@ fn preemption_cost<J: Job>(job: &J, config: &PreemptionConfig) -> f64 {
 }
 
 fn remaining_walltime_value<J: Job>(job: &J, config: &PreemptionConfig) -> f64 {
+    // Walltime and elapsed minutes are small; precision loss is negligible
+    #[allow(clippy::cast_precision_loss)]
     let walltime_minutes = match job.walltime() {
         Some(w) => w.num_minutes() as f64,
         None => return 0.0,
     };
 
+    #[allow(clippy::cast_precision_loss)]
     let elapsed = job
         .started_at()
-        .map(|s| (config.now - s).num_minutes() as f64)
-        .unwrap_or(0.0);
+        .map_or(0.0, |s| (config.now - s).num_minutes() as f64);
 
     if walltime_minutes > 0.0 {
         let fraction_used = elapsed / walltime_minutes;

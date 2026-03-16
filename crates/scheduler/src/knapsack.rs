@@ -23,7 +23,7 @@ pub struct KnapsackSolver {
 }
 
 impl KnapsackSolver {
-    pub fn new(weights: CostWeights) -> Self {
+    pub const fn new(weights: CostWeights) -> Self {
         Self {
             evaluator: CostEvaluator::new(weights),
         }
@@ -54,8 +54,53 @@ impl KnapsackSolver {
         let mut decisions = Vec::new();
         let mut deferred_candidates: Vec<&J> = Vec::new();
 
-        // 2. Pass 1 — Primary placement (greedy assignment)
-        for (job, _score) in &scored {
+        // 2. Pass 1 -- Primary placement (greedy assignment)
+        Self::primary_placement(
+            &scored,
+            available_nodes,
+            topology,
+            &mut used_nodes,
+            &mut decisions,
+            &mut deferred_candidates,
+        );
+
+        // 3. Pass 2 -- Reservation-based backfill
+        Self::backfill_pass(
+            &deferred_candidates,
+            available_nodes,
+            topology,
+            timeline,
+            &mut used_nodes,
+            &mut decisions,
+        );
+
+        // 4. Emit Defer decisions for everything not placed or backfilled
+        let placed_ids: HashSet<uuid::Uuid> = decisions
+            .iter()
+            .map(super::placement::PlacementDecision::allocation_id)
+            .collect();
+        for job in &deferred_candidates {
+            if !placed_ids.contains(&job.id()) {
+                decisions.push(PlacementDecision::Defer {
+                    allocation_id: job.id(),
+                    reason: "insufficient nodes or no suitable node set found".into(),
+                });
+            }
+        }
+
+        SchedulingResult { decisions }
+    }
+
+    /// Pass 1: greedily assign jobs to nodes by score order.
+    fn primary_placement<'a, J: Job, N: ComputeNode>(
+        scored: &[(&'a J, f64)],
+        available_nodes: &[N],
+        topology: &TopologyModel,
+        used_nodes: &mut HashSet<String>,
+        decisions: &mut Vec<PlacementDecision>,
+        deferred_candidates: &mut Vec<&'a J>,
+    ) {
+        for (job, _score) in scored {
             let min_nodes = job.node_count_min();
             let max_nodes = job.node_count_max().unwrap_or(min_nodes);
 
@@ -68,28 +113,16 @@ impl KnapsackSolver {
             let constraints = job.constraints();
             let constrained = filter_by_constraints(&candidates, &constraints);
 
-            if (constrained.len() as u32) < min_nodes {
+            // Node counts in HPC clusters won't exceed u32::MAX
+            #[allow(clippy::cast_possible_truncation)]
+            let constrained_count = constrained.len() as u32;
+            if constrained_count < min_nodes {
                 deferred_candidates.push(job);
                 continue;
             }
 
-            // For moldable jobs, try to use as many nodes as possible (up to max)
-            let requested = (constrained.len() as u32).min(max_nodes).max(min_nodes);
-
-            // Sensitive allocations require hard conformance — no topology fallback.
-            let selected = if job.is_sensitive() {
-                select_conformant_nodes(requested, &constrained)
-            } else {
-                let topo_pref = job.topology_preference();
-                select_conformant_nodes(requested, &constrained).or_else(|| {
-                    select_nodes_topology_aware(
-                        requested,
-                        topo_pref.as_ref(),
-                        &constrained,
-                        topology,
-                    )
-                })
-            };
+            let requested = constrained_count.min(max_nodes).max(min_nodes);
+            let selected = select_nodes(*job, requested, &constrained, topology);
 
             match selected {
                 Some(nodes) => {
@@ -106,107 +139,108 @@ impl KnapsackSolver {
                 }
             }
         }
+    }
 
-        // 3. Reservation: highest-priority deferred candidate gets a reservation
+    /// Pass 2: reservation-based backfill for deferred candidates.
+    fn backfill_pass<J: Job, N: ComputeNode>(
+        deferred_candidates: &[&J],
+        available_nodes: &[N],
+        topology: &TopologyModel,
+        timeline: &ResourceTimeline,
+        used_nodes: &mut HashSet<String>,
+        decisions: &mut Vec<PlacementDecision>,
+    ) {
         let now = Utc::now();
+        // Node counts in HPC clusters won't exceed u32::MAX
+        #[allow(clippy::cast_possible_truncation)]
         let free_count = available_nodes
             .iter()
             .filter(|n| !used_nodes.contains(n.id()))
             .filter(|n| n.is_available())
             .count() as u32;
 
-        let reservation = if let Some(holder) = deferred_candidates.first() {
+        let reservation = deferred_candidates.first().and_then(|holder| {
             let needed = holder.node_count_min();
             timeline
                 .earliest_start(needed, free_count, |_| true)
                 .map(|time| (holder.id(), time))
-        } else {
-            None
+        });
+
+        let Some((reservation_holder_id, reservation_time)) = reservation else {
+            return;
         };
 
-        // 4. Pass 2 — Backfill
-        if let Some((reservation_holder_id, reservation_time)) = reservation {
-            let backfill_candidates: Vec<&J> = deferred_candidates
+        let backfill_candidates: Vec<&J> = deferred_candidates
+            .iter()
+            .filter(|j| j.id() != reservation_holder_id)
+            .copied()
+            .collect();
+
+        for job in &backfill_candidates {
+            let Some(walltime) = job.walltime() else {
+                continue;
+            };
+
+            if !ResourceTimeline::is_backfill_safe(now, walltime, reservation_time) {
+                continue;
+            }
+
+            let bf_min_nodes = job.node_count_min();
+            let bf_max_nodes = job.node_count_max().unwrap_or(bf_min_nodes);
+
+            let candidates: Vec<&N> = available_nodes
                 .iter()
-                .filter(|j| j.id() != reservation_holder_id)
-                .copied()
+                .filter(|n| !used_nodes.contains(n.id()))
+                .filter(|n| n.is_available())
                 .collect();
 
-            for job in &backfill_candidates {
-                let walltime = match job.walltime() {
-                    Some(w) => w,
-                    None => continue,
-                };
+            let constraints = job.constraints();
+            let constrained = filter_by_constraints(&candidates, &constraints);
 
-                if !ResourceTimeline::is_backfill_safe(now, walltime, reservation_time) {
-                    continue;
-                }
-
-                let bf_min_nodes = job.node_count_min();
-                let bf_max_nodes = job.node_count_max().unwrap_or(bf_min_nodes);
-
-                let candidates: Vec<&N> = available_nodes
-                    .iter()
-                    .filter(|n| !used_nodes.contains(n.id()))
-                    .filter(|n| n.is_available())
-                    .collect();
-
-                let constraints = job.constraints();
-                let constrained = filter_by_constraints(&candidates, &constraints);
-
-                if (constrained.len() as u32) < bf_min_nodes {
-                    continue;
-                }
-
-                let requested = (constrained.len() as u32)
-                    .min(bf_max_nodes)
-                    .max(bf_min_nodes);
-
-                let selected = if job.is_sensitive() {
-                    select_conformant_nodes(requested, &constrained)
-                } else {
-                    let topo_pref = job.topology_preference();
-                    select_conformant_nodes(requested, &constrained).or_else(|| {
-                        select_nodes_topology_aware(
-                            requested,
-                            topo_pref.as_ref(),
-                            &constrained,
-                            topology,
-                        )
-                    })
-                };
-
-                if let Some(nodes) = selected {
-                    for n in &nodes {
-                        used_nodes.insert(n.clone());
-                    }
-                    decisions.push(PlacementDecision::Backfill {
-                        allocation_id: job.id(),
-                        nodes,
-                        reservation_holder: reservation_holder_id,
-                        must_complete_by: reservation_time,
-                    });
-                }
+            // Node counts in HPC clusters won't exceed u32::MAX
+            #[allow(clippy::cast_possible_truncation)]
+            let constrained_count = constrained.len() as u32;
+            if constrained_count < bf_min_nodes {
+                continue;
             }
-        }
 
-        // 5. Emit Defer decisions for everything not placed or backfilled
-        let placed_ids: HashSet<uuid::Uuid> = decisions.iter().map(|d| d.allocation_id()).collect();
-        for job in &deferred_candidates {
-            if !placed_ids.contains(&job.id()) {
-                decisions.push(PlacementDecision::Defer {
+            let requested = constrained_count.min(bf_max_nodes).max(bf_min_nodes);
+            let selected = select_nodes(*job, requested, &constrained, topology);
+
+            if let Some(nodes) = selected {
+                for n in &nodes {
+                    used_nodes.insert(n.clone());
+                }
+                decisions.push(PlacementDecision::Backfill {
                     allocation_id: job.id(),
-                    reason: "insufficient nodes or no suitable node set found".into(),
+                    nodes,
+                    reservation_holder: reservation_holder_id,
+                    must_complete_by: reservation_time,
                 });
             }
         }
-
-        SchedulingResult { decisions }
     }
 
     /// Get the underlying cost evaluator (for testing/inspection).
-    pub fn evaluator(&self) -> &CostEvaluator {
+    pub const fn evaluator(&self) -> &CostEvaluator {
         &self.evaluator
+    }
+}
+
+/// Select nodes for a job using conformance-first, with topology fallback for non-sensitive jobs.
+fn select_nodes<J: Job + ?Sized, N: ComputeNode>(
+    job: &J,
+    requested: u32,
+    constrained: &[&N],
+    topology: &TopologyModel,
+) -> Option<Vec<String>> {
+    if job.is_sensitive() {
+        select_conformant_nodes(requested, constrained)
+    } else {
+        let topo_pref = job.topology_preference();
+        select_conformant_nodes(requested, constrained).or_else(|| {
+            select_nodes_topology_aware(requested, topo_pref.as_ref(), constrained, topology)
+        })
     }
 }
 
@@ -467,7 +501,7 @@ mod tests {
     }
 
     /// Create nodes split across two conformance groups (fp-a and fp-b),
-    /// so `select_conformant_nodes(n)` fails when n > group_size.
+    /// so `select_conformant_nodes(n)` fails when n > `group_size`.
     fn make_mixed_conformance_nodes(per_group: usize) -> Vec<TestNode> {
         let mut nodes = Vec::new();
         for i in 0..per_group {

@@ -20,8 +20,14 @@ pub struct DiscoveryCache {
 impl DiscoveryCache {
     /// Create a new discovery cache with the given HTTP request timeout.
     pub fn new(timeout: Duration) -> Self {
-        let http_client = reqwest::Client::builder().timeout(timeout).build().unwrap_or_default();
-        Self { cache: Mutex::new(HashMap::new()), http_client }
+        let http_client = reqwest::Client::builder()
+            .timeout(timeout)
+            .build()
+            .unwrap_or_default();
+        Self {
+            cache: Mutex::new(HashMap::new()),
+            http_client,
+        }
     }
 
     /// Fetch discovery document for an issuer.
@@ -32,8 +38,10 @@ impl DiscoveryCache {
     pub async fn get(&self, issuer_url: &str) -> Result<OidcDiscovery, AuthError> {
         // Check cache first.
         if let Some(cached) = self.get_cached(issuer_url) {
-            let age = Utc::now().signed_duration_since(cached.fetched_at).num_seconds();
-            if age >= 0 && (age as u64) < cached.ttl_seconds {
+            let age = Utc::now()
+                .signed_duration_since(cached.fetched_at)
+                .num_seconds();
+            if age >= 0 && u64::try_from(age).unwrap_or(u64::MAX) < cached.ttl_seconds {
                 debug!(issuer = issuer_url, "using cached discovery document");
                 return Ok(cached.document);
             }
@@ -69,7 +77,10 @@ impl DiscoveryCache {
     }
 
     fn get_cached(&self, issuer_url: &str) -> Option<CachedDiscovery> {
-        self.cache.lock().ok().and_then(|c| c.get(issuer_url).cloned())
+        self.cache
+            .lock()
+            .ok()
+            .and_then(|c| c.get(issuer_url).cloned())
     }
 
     fn store(&self, issuer_url: &str, doc: OidcDiscovery) {
@@ -86,7 +97,10 @@ impl DiscoveryCache {
     }
 
     async fn fetch_discovery(&self, issuer_url: &str) -> Result<OidcDiscovery, AuthError> {
-        let url = format!("{}/.well-known/openid-configuration", issuer_url.trim_end_matches('/'));
+        let url = format!(
+            "{}/.well-known/openid-configuration",
+            issuer_url.trim_end_matches('/')
+        );
 
         let response = self
             .http_client
@@ -96,7 +110,10 @@ impl DiscoveryCache {
             .map_err(|e| AuthError::IdpUnreachable(format!("{url}: {e}")))?;
 
         if !response.status().is_success() {
-            return Err(AuthError::IdpUnreachable(format!("{url}: HTTP {}", response.status())));
+            return Err(AuthError::IdpUnreachable(format!(
+                "{url}: HTTP {}",
+                response.status()
+            )));
         }
 
         response

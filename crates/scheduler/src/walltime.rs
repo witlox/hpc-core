@@ -91,7 +91,7 @@ impl WalltimeEnforcer {
         let grace = self.grace_period;
         let mut expired = Vec::new();
 
-        for (id, entry) in self.entries.iter_mut() {
+        for (id, entry) in &mut self.entries {
             let deadline = entry.start_time + entry.walltime;
 
             if now < deadline {

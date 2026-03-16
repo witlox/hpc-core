@@ -157,7 +157,11 @@ pub fn group_span(nodes: &[String], topology: &TopologyModel) -> u32 {
             }
         }
     }
-    groups.len() as u32
+    // Topology group counts won't exceed u32::MAX
+    #[allow(clippy::cast_possible_truncation)]
+    {
+        groups.len() as u32
+    }
 }
 
 #[cfg(test)]

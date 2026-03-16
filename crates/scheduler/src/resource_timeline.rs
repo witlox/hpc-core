@@ -53,9 +53,8 @@ impl ResourceTimeline {
         let mut events = Vec::new();
 
         for job in running {
-            let started_at = match job.started_at() {
-                Some(t) => t,
-                None => continue,
+            let Some(started_at) = job.started_at() else {
+                continue;
             };
 
             let walltime = match job.walltime() {
@@ -84,7 +83,7 @@ impl ResourceTimeline {
 
         events.sort_by_key(|e| e.release_at);
 
-        ResourceTimeline { events }
+        Self { events }
     }
 
     /// Find the earliest time at which `needed` nodes become available.
@@ -109,6 +108,8 @@ impl ResourceTimeline {
         let mut accumulated = free_now;
 
         for event in &self.events {
+            // Node counts in HPC clusters won't exceed u32::MAX
+            #[allow(clippy::cast_possible_truncation)]
             let matching = event.nodes.iter().filter(|n| filter_fn(n)).count() as u32;
             accumulated += matching;
 
@@ -168,11 +169,15 @@ mod tests {
         fn id(&self) -> Uuid {
             self.id
         }
-        fn tenant_id(&self) -> &str {
+        fn tenant_id(&self) -> &'static str {
             "test"
         }
         fn node_count_min(&self) -> u32 {
-            self.assigned_nodes.len() as u32
+            // Node counts in HPC clusters won't exceed u32::MAX
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                self.assigned_nodes.len() as u32
+            }
         }
         fn node_count_max(&self) -> Option<u32> {
             None

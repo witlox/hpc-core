@@ -33,32 +33,29 @@ pub enum PlacementDecision {
 }
 
 impl PlacementDecision {
-    pub fn allocation_id(&self) -> Uuid {
+    pub const fn allocation_id(&self) -> Uuid {
         match self {
-            PlacementDecision::Place { allocation_id, .. }
-            | PlacementDecision::Preempt { allocation_id, .. }
-            | PlacementDecision::Backfill { allocation_id, .. }
-            | PlacementDecision::Defer { allocation_id, .. } => *allocation_id,
+            Self::Place { allocation_id, .. }
+            | Self::Preempt { allocation_id, .. }
+            | Self::Backfill { allocation_id, .. }
+            | Self::Defer { allocation_id, .. } => *allocation_id,
         }
     }
 
-    pub fn is_placed(&self) -> bool {
-        matches!(
-            self,
-            PlacementDecision::Place { .. } | PlacementDecision::Backfill { .. }
-        )
+    pub const fn is_placed(&self) -> bool {
+        matches!(self, Self::Place { .. } | Self::Backfill { .. })
     }
 
-    pub fn is_preempt(&self) -> bool {
-        matches!(self, PlacementDecision::Preempt { .. })
+    pub const fn is_preempt(&self) -> bool {
+        matches!(self, Self::Preempt { .. })
     }
 
-    pub fn is_backfill(&self) -> bool {
-        matches!(self, PlacementDecision::Backfill { .. })
+    pub const fn is_backfill(&self) -> bool {
+        matches!(self, Self::Backfill { .. })
     }
 
-    pub fn is_deferred(&self) -> bool {
-        matches!(self, PlacementDecision::Defer { .. })
+    pub const fn is_deferred(&self) -> bool {
+        matches!(self, Self::Defer { .. })
     }
 }
 

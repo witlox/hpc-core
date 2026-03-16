@@ -1,6 +1,8 @@
 # hpc-core
 
+[![codecov](https://codecov.io/gh/witlox/hpc-core/graph/badge.svg)](https://codecov.io/gh/witlox/hpc-core)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Rust](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org)
 
 Shared infrastructure crates for HPC systems, used by [Lattice](https://github.com/witlox/lattice) and [Pact](https://github.com/witlox/pact).
 

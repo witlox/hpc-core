@@ -53,15 +53,18 @@ pub fn select_conformant_nodes<N: ComputeNode>(
 
 /// Compute f₉ conformance fitness score for a set of candidate nodes.
 ///
-/// Score = largest_conformance_group_size / requested_nodes.
+/// Score = `largest_conformance_group_size` / `requested_nodes`.
 /// Returns 1.0 when all candidates share the same fingerprint.
 pub fn conformance_fitness<N: ComputeNode>(candidates: &[&N], requested_nodes: u32) -> f64 {
     if requested_nodes == 0 {
         return 1.0;
     }
     let groups = group_by_conformance(candidates);
-    let max_group_size = groups.values().map(|g| g.len()).max().unwrap_or(0);
-    max_group_size as f64 / requested_nodes as f64
+    let max_group_size = groups.values().map(std::vec::Vec::len).max().unwrap_or(0);
+    // Node counts in HPC clusters won't exceed f64 mantissa precision
+    #[allow(clippy::cast_precision_loss)]
+    let size = max_group_size as f64;
+    size / f64::from(requested_nodes)
 }
 
 /// Filter nodes that satisfy hardware constraints.
@@ -125,23 +128,24 @@ pub fn filter_by_constraints<'a, N: ComputeNode>(
 ///
 /// Returns 1.0 if all resources fit in one domain, 0.5 if no topology info.
 pub fn memory_locality_score<N: ComputeNode>(node: &N) -> f64 {
-    let topo = match node.memory_topology() {
-        Some(t) => t,
-        None => return 0.5,
+    let Some(topo) = node.memory_topology() else {
+        return 0.5;
     };
 
     if topo.domains.len() <= 1 {
         return 1.0;
     }
 
-    let total_cpus = node.cpu_cores();
-    let total_gpus = node.gpu_count();
-    if total_cpus == 0 && total_gpus == 0 {
+    let total_cpu_cores = node.cpu_cores();
+    let total_gpu_devices = node.gpu_count();
+    if total_cpu_cores == 0 && total_gpu_devices == 0 {
         return 1.0;
     }
 
-    let total_resources = total_cpus as f64 + total_gpus as f64;
+    let total_resources = f64::from(total_cpu_cores) + f64::from(total_gpu_devices);
 
+    // Attached device counts per domain are small; precision loss is not a concern
+    #[allow(clippy::cast_precision_loss)]
     let best_domain_resources = topo
         .domains
         .iter()

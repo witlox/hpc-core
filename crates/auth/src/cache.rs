@@ -63,13 +63,18 @@ impl TokenCache {
     /// Create a new token cache.
     ///
     /// `cache_dir` is the application config directory (e.g. `~/.config/pact`).
-    pub fn new(cache_dir: PathBuf, permission_mode: PermissionMode) -> Self {
-        Self { cache_dir, permission_mode }
+    pub const fn new(cache_dir: PathBuf, permission_mode: PermissionMode) -> Self {
+        Self {
+            cache_dir,
+            permission_mode,
+        }
     }
 
     /// Create a token cache using the default config directory for the given app name.
     pub fn default_for_app(app_name: &str, permission_mode: PermissionMode) -> Self {
-        let cache_dir = dirs::config_dir().unwrap_or_else(|| PathBuf::from(".")).join(app_name);
+        let cache_dir = dirs::config_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(app_name);
         Self::new(cache_dir, permission_mode)
     }
 
@@ -197,7 +202,9 @@ impl TokenCache {
 
     /// List servers with cached tokens.
     pub fn list_servers(&self) -> Vec<String> {
-        self.read_file().map(|c| c.servers.keys().cloned().collect()).unwrap_or_default()
+        self.read_file()
+            .map(|c| c.servers.keys().cloned().collect())
+            .unwrap_or_default()
     }
 
     /// Get the default server URL.
@@ -256,8 +263,12 @@ mod tests {
     fn per_server_isolation_auth6() {
         let tmp = TempDir::new().unwrap();
         let cache = test_cache(tmp.path());
-        cache.write("https://server-a.com", &test_tokens("a")).unwrap();
-        cache.write("https://server-b.com", &test_tokens("b")).unwrap();
+        cache
+            .write("https://server-a.com", &test_tokens("a"))
+            .unwrap();
+        cache
+            .write("https://server-b.com", &test_tokens("b"))
+            .unwrap();
 
         let a = cache.read("https://server-a.com").unwrap().unwrap();
         let b = cache.read("https://server-b.com").unwrap().unwrap();
@@ -269,7 +280,9 @@ mod tests {
     fn delete_removes_server_entry() {
         let tmp = TempDir::new().unwrap();
         let cache = test_cache(tmp.path());
-        cache.write("https://example.com", &test_tokens("a")).unwrap();
+        cache
+            .write("https://example.com", &test_tokens("a"))
+            .unwrap();
         cache.delete("https://example.com").unwrap();
 
         assert!(cache.read("https://example.com").unwrap().is_none());
@@ -279,7 +292,9 @@ mod tests {
     fn delete_clears_default_if_matching() {
         let tmp = TempDir::new().unwrap();
         let cache = test_cache(tmp.path());
-        cache.write("https://example.com", &test_tokens("a")).unwrap();
+        cache
+            .write("https://example.com", &test_tokens("a"))
+            .unwrap();
         cache.set_default_server("https://example.com").unwrap();
         cache.delete("https://example.com").unwrap();
 
@@ -305,7 +320,10 @@ mod tests {
         assert!(cache.default_server().is_none());
 
         cache.set_default_server("https://example.com").unwrap();
-        assert_eq!(cache.default_server().as_deref(), Some("https://example.com"));
+        assert_eq!(
+            cache.default_server().as_deref(),
+            Some("https://example.com")
+        );
     }
 
     #[test]
@@ -327,12 +345,14 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn strict_mode_rejects_wrong_permissions_auth5() {
+        use std::os::unix::fs::PermissionsExt;
         let tmp = TempDir::new().unwrap();
         let cache = test_cache(tmp.path());
-        cache.write("https://example.com", &test_tokens("a")).unwrap();
+        cache
+            .write("https://example.com", &test_tokens("a"))
+            .unwrap();
 
         // Set wrong permissions.
-        use std::os::unix::fs::PermissionsExt;
         let path = cache.cache_path();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
 
@@ -343,12 +363,14 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn lenient_mode_fixes_permissions_auth5() {
+        use std::os::unix::fs::PermissionsExt;
         let tmp = TempDir::new().unwrap();
         let cache = TokenCache::new(tmp.path().to_path_buf(), PermissionMode::Lenient);
-        cache.write("https://example.com", &test_tokens("a")).unwrap();
+        cache
+            .write("https://example.com", &test_tokens("a"))
+            .unwrap();
 
         // Set wrong permissions.
-        use std::os::unix::fs::PermissionsExt;
         let path = cache.cache_path();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
 
@@ -364,12 +386,18 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn write_sets_0600_permissions() {
+        use std::os::unix::fs::PermissionsExt;
         let tmp = TempDir::new().unwrap();
         let cache = test_cache(tmp.path());
-        cache.write("https://example.com", &test_tokens("a")).unwrap();
+        cache
+            .write("https://example.com", &test_tokens("a"))
+            .unwrap();
 
-        use std::os::unix::fs::PermissionsExt;
-        let mode = fs::metadata(cache.cache_path()).unwrap().permissions().mode() & 0o777;
+        let mode = fs::metadata(cache.cache_path())
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
         assert_eq!(mode, 0o600);
     }
 

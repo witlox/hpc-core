@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 /// Configuration for an [`AuthClient`](crate::AuthClient).
 #[derive(Debug, Clone)]
 pub struct AuthClientConfig {
-    /// Server URL (e.g., "https://journal.example.com:9443").
+    /// Server URL (e.g., "<https://journal.example.com:9443>").
     /// Used to key token cache and fetch auth discovery.
     pub server_url: String,
 
@@ -17,13 +17,13 @@ pub struct AuthClientConfig {
     /// Permission mode for token cache files.
     pub permission_mode: PermissionMode,
 
-    /// Override IdP configuration (skips server discovery).
+    /// Override `IdP` configuration (skips server discovery).
     pub idp_override: Option<IdpConfig>,
 
-    /// Force a specific OAuth2 flow.
+    /// Force a specific `OAuth2` flow.
     pub flow_override: Option<OAuthFlow>,
 
-    /// Timeout for HTTP requests to IdP.
+    /// Timeout for HTTP requests to `IdP`.
     pub timeout: Duration,
 }
 
@@ -37,7 +37,7 @@ pub enum PermissionMode {
     Lenient,
 }
 
-/// OAuth2 flow selection.
+/// `OAuth2` flow selection.
 #[derive(Debug, Clone)]
 pub enum OAuthFlow {
     /// Authorization Code with PKCE.
@@ -45,12 +45,15 @@ pub enum OAuthFlow {
     /// Device Authorization Grant.
     DeviceCode,
     /// Client Credentials (machine-to-machine).
-    ClientCredentials { client_id: String, client_secret: String },
+    ClientCredentials {
+        client_id: String,
+        client_secret: String,
+    },
     /// Manual token paste (SSH sessions without browser).
     ManualPaste,
 }
 
-/// Override IdP configuration (skips server discovery).
+/// Override `IdP` configuration (skips server discovery).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IdpConfig {
     pub issuer_url: String,
@@ -61,7 +64,7 @@ pub struct IdpConfig {
     pub device_authorization_endpoint: Option<String>,
 }
 
-/// A set of OAuth2 tokens.
+/// A set of `OAuth2` tokens.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct TokenSet {
     pub access_token: String,
@@ -75,7 +78,10 @@ impl fmt::Debug for TokenSet {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TokenSet")
             .field("access_token", &"[redacted]")
-            .field("refresh_token", &self.refresh_token.as_ref().map(|_| "[redacted]"))
+            .field(
+                "refresh_token",
+                &self.refresh_token.as_ref().map(|_| "[redacted]"),
+            )
             .field("expires_at", &self.expires_at)
             .field("scopes", &self.scopes)
             .finish()
@@ -84,7 +90,11 @@ impl fmt::Debug for TokenSet {
 
 impl fmt::Display for TokenSet {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "TokenSet(expires_at={}, scopes={:?})", self.expires_at, self.scopes)
+        write!(
+            f,
+            "TokenSet(expires_at={}, scopes={:?})",
+            self.expires_at, self.scopes
+        )
     }
 }
 

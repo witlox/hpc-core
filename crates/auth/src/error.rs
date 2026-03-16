@@ -3,11 +3,11 @@ use thiserror::Error;
 /// Errors returned by the hpc-auth library.
 #[derive(Debug, Error)]
 pub enum AuthError {
-    /// IdP is unreachable (F15).
+    /// `IdP` is unreachable (F15).
     #[error("IdP unreachable: {0}")]
     IdpUnreachable(String),
 
-    /// No compatible OAuth2 flow available.
+    /// No compatible `OAuth2` flow available.
     #[error("no supported OAuth2 flow available from IdP discovery")]
     NoSupportedFlow,
 
@@ -23,7 +23,7 @@ pub enum AuthError {
     #[error("token cache permission denied: {0}")]
     CachePermissionDenied(String),
 
-    /// OAuth2 exchange failed (invalid credentials, etc.).
+    /// `OAuth2` exchange failed (invalid credentials, etc.).
     #[error("OAuth2 failed: {0}")]
     OAuthFailed(String),
 
