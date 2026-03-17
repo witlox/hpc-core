@@ -1,0 +1,35 @@
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        target: auto
+
+flags:
+  raft:
+    paths:
+      - crates/raft/
+    carryforward: true
+  scheduler:
+    paths:
+      - crates/scheduler/
+    carryforward: true
+  auth:
+    paths:
+      - crates/auth/
+    carryforward: true
+  audit:
+    paths:
+      - crates/audit/
+    carryforward: true
+  identity:
+    paths:
+      - crates/identity/
+    carryforward: true
+  node:
+    paths:
+      - crates/node/
+    carryforward: true
