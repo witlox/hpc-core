@@ -13,6 +13,9 @@ Shared infrastructure crates for HPC systems, used by [Lattice](https://github.c
 | [raft-hpc-core](crates/raft/) | Raft consensus infrastructure built on [openraft](https://github.com/datafuselabs/openraft) — log stores, gRPC transport, state machine, backup/restore | [![crates.io](https://img.shields.io/crates/v/raft-hpc-core.svg)](https://crates.io/crates/raft-hpc-core) |
 | [hpc-scheduler-core](crates/scheduler/) | Scheduling algorithms — knapsack solver, topology-aware placement, backfill, preemption, walltime enforcement | [![crates.io](https://img.shields.io/crates/v/hpc-scheduler-core.svg)](https://crates.io/crates/hpc-scheduler-core) |
 | [hpc-auth](crates/auth/) | OAuth2/OIDC authentication — multi-flow support, per-server token caching, automatic refresh, PKCE | [![crates.io](https://img.shields.io/crates/v/hpc-auth.svg)](https://crates.io/crates/hpc-auth) |
+| [hpc-audit](crates/audit/) | Shared audit event types and sink trait — each system owns its log, shared format for SIEM forwarding | [![crates.io](https://img.shields.io/crates/v/hpc-audit.svg)](https://crates.io/crates/hpc-audit) |
+| [hpc-identity](crates/identity/) | Workload identity abstraction — SPIRE/self-signed/bootstrap certificate sources, cascading provider selection, dual-channel rotation | [![crates.io](https://img.shields.io/crates/v/hpc-identity.svg)](https://crates.io/crates/hpc-identity) |
+| [hpc-node](crates/node/) | Node-level resource management contracts — cgroup v2 conventions, namespace handoff, mount management, readiness signaling | [![crates.io](https://img.shields.io/crates/v/hpc-node.svg)](https://crates.io/crates/hpc-node) |
 
 ## Development
 
