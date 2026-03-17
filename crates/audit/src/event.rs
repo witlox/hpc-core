@@ -203,7 +203,11 @@ mod tests {
 
     #[test]
     fn all_outcomes_serialize() {
-        for outcome in [AuditOutcome::Success, AuditOutcome::Failure, AuditOutcome::Denied] {
+        for outcome in [
+            AuditOutcome::Success,
+            AuditOutcome::Failure,
+            AuditOutcome::Denied,
+        ] {
             let json = serde_json::to_string(&outcome).unwrap();
             let deser: AuditOutcome = serde_json::from_str(&json).unwrap();
             assert_eq!(deser, outcome);

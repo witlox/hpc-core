@@ -187,10 +187,8 @@ mod tests {
 
     #[tokio::test]
     async fn cascade_all_fail_returns_last_error() {
-        let cascade = IdentityCascade::new(vec![
-            Box::new(NeverAvailable),
-            Box::new(AvailableButFails),
-        ]);
+        let cascade =
+            IdentityCascade::new(vec![Box::new(NeverAvailable), Box::new(AvailableButFails)]);
 
         let err = cascade.get_identity().await.unwrap_err();
         assert!(matches!(err, IdentityError::CsrSigningFailed { .. }));

@@ -80,16 +80,10 @@ pub enum MountError {
     MountFailed { image_path: String, reason: String },
 
     #[error("unmount failed for {mount_point}: {reason}")]
-    UnmountFailed {
-        mount_point: String,
-        reason: String,
-    },
+    UnmountFailed { mount_point: String, reason: String },
 
     #[error("refcount inconsistency for {image_path}: {detail}")]
-    RefcountInconsistency {
-        image_path: String,
-        detail: String,
-    },
+    RefcountInconsistency { image_path: String, detail: String },
 
     #[error("mount I/O error: {0}")]
     Io(#[from] std::io::Error),

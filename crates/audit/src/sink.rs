@@ -74,7 +74,10 @@ impl MemoryAuditSink {
     /// Returns all collected events.
     #[must_use]
     pub fn events(&self) -> Vec<AuditEvent> {
-        self.events.lock().expect("audit sink lock poisoned").clone()
+        self.events
+            .lock()
+            .expect("audit sink lock poisoned")
+            .clone()
     }
 
     /// Returns the number of collected events.

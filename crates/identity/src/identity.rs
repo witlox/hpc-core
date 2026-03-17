@@ -43,9 +43,15 @@ pub struct WorkloadIdentity {
 impl std::fmt::Debug for WorkloadIdentity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("WorkloadIdentity")
-            .field("cert_chain_pem", &format!("[{} bytes]", self.cert_chain_pem.len()))
+            .field(
+                "cert_chain_pem",
+                &format!("[{} bytes]", self.cert_chain_pem.len()),
+            )
             .field("private_key_pem", &"[REDACTED]")
-            .field("trust_bundle_pem", &format!("[{} bytes]", self.trust_bundle_pem.len()))
+            .field(
+                "trust_bundle_pem",
+                &format!("[{} bytes]", self.trust_bundle_pem.len()),
+            )
             .field("expires_at", &self.expires_at)
             .field("source", &self.source)
             .finish()

@@ -337,9 +337,16 @@ mod tests {
         mgr.create_hierarchy().unwrap();
 
         let handle = mgr
-            .create_scope(slices::PACT_GPU, "nvidia-persistenced", &ResourceLimits::default())
+            .create_scope(
+                slices::PACT_GPU,
+                "nvidia-persistenced",
+                &ResourceLimits::default(),
+            )
             .unwrap();
-        assert_eq!(handle.path, "pact.slice/gpu.slice/nvidia-persistenced.scope");
+        assert_eq!(
+            handle.path,
+            "pact.slice/gpu.slice/nvidia-persistenced.scope"
+        );
 
         assert!(mgr.is_scope_empty(&handle).unwrap());
 

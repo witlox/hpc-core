@@ -198,10 +198,7 @@ mod tests {
         ];
         let mut seen = std::collections::HashSet::new();
         for action in &all_actions {
-            assert!(
-                seen.insert(action),
-                "duplicate action constant: {action}"
-            );
+            assert!(seen.insert(action), "duplicate action constant: {action}");
         }
     }
 }
