@@ -1,0 +1,20 @@
+[package]
+name = "hpc-node"
+version.workspace = true
+edition = "2021"
+license.workspace = true
+description = "Shared contracts for node-level resource management between HPC systems: cgroup v2 conventions, namespace handoff protocol, mount management, and readiness signaling."
+repository.workspace = true
+readme = "README.md"
+keywords = ["hpc", "cgroup", "namespace", "mount", "init"]
+categories = ["os", "hardware-support"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+
+[dev-dependencies]
+serde_json = "1"
+
+[lints]
+workspace = true
