@@ -9,7 +9,7 @@ rust-version = "1.85"
 readme = "README.md"
 
 [dependencies]
-openraft = { version = "=0.10.0-alpha.14", features = ["serde"] }
+openraft = { version = "=0.10.0-alpha.17", features = ["serde"] }
 tokio = { version = "1", features = ["full"] }
 tonic = { version = "0.14", features = ["tls-ring", "channel", "transport"] }
 tonic-prost = "0.14"
