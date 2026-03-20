@@ -4,6 +4,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+      day: wednesday
+      time: "13:00"
+      timezone: Europe/Amsterdam
     groups:
       rust-dependencies:
         patterns:
@@ -18,5 +21,12 @@ updates:
     directory: /
     schedule:
       interval: weekly
+      day: wednesday
+      time: "13:00"
+      timezone: Europe/Amsterdam
+    groups:
+      github-actions:
+        patterns:
+          - "*"
     commit-message:
       prefix: "ci"

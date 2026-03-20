@@ -4,6 +4,30 @@ coverage:
       default:
         target: auto
         threshold: 1%
+      raft:
+        target: auto
+        flags:
+          - raft
+      scheduler:
+        target: auto
+        flags:
+          - scheduler
+      auth:
+        target: auto
+        flags:
+          - auth
+      audit:
+        target: auto
+        flags:
+          - audit
+      identity:
+        target: auto
+        flags:
+          - identity
+      node:
+        target: auto
+        flags:
+          - node
     patch:
       default:
         target: auto
@@ -33,3 +57,34 @@ flags:
     paths:
       - crates/node/
     carryforward: true
+
+component_management:
+  default_rules:
+    statuses:
+      - type: project
+        target: auto
+  individual_components:
+    - component_id: raft
+      name: raft
+      paths:
+        - crates/raft/**
+    - component_id: scheduler
+      name: scheduler
+      paths:
+        - crates/scheduler/**
+    - component_id: auth
+      name: auth
+      paths:
+        - crates/auth/**
+    - component_id: audit
+      name: audit
+      paths:
+        - crates/audit/**
+    - component_id: identity
+      name: identity
+      paths:
+        - crates/identity/**
+    - component_id: node
+      name: node
+      paths:
+        - crates/node/**
